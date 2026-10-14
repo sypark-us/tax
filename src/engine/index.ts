@@ -9,6 +9,9 @@ import { schedule1A, type Schedule1A } from './sched1A';
 import { form8959, form8960, netScheduleC, scheduleSE, type Form8959, type Form8960, type ScheduleSE } from './otherTaxes';
 import { form8995, schedule3, schedule8812, type Form8995, type Schedule3, type Schedule8812 } from './credits';
 import { fbar as computeFbar, type Fbar } from './fbar';
+import { form1116, type Form1116 } from './f1116';
+import { form3520, form8938, type Form3520, type Form8938 } from './foreign';
+import { inheritedSales, type InheritedSale } from './inherited';
 
 export interface ScheduleB {
   required: boolean;
@@ -78,6 +81,10 @@ export interface ComputedReturn {
   f8960: Form8960;
   f8995: Form8995;
   fbar: Fbar;
+  f1116: Form1116 | null;
+  f3520: Form3520;
+  f8938: Form8938;
+  inheritedSales: InheritedSale[];
   qdcg: QdcgWorksheet | null;
   standardDeduction: number;
   attachments: string[];
@@ -122,8 +129,25 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
     line7b: fbarReport.countries,
   };
 
+  // ---- Foreign-source items (Form 1116) ----
+  const foreignInt = ret.int1099s.filter((i) => i.foreignCountry.trim());
+  const foreignInterest = sum(foreignInt.map((i) => r(i.box1)));
+  const foreignDiv = ret.div1099s.filter((d) => d.box7 > 0);
+  const foreignOrdinaryDividends = sum(foreignDiv.map((d) => r(d.foreignSourceDividends > 0 ? d.foreignSourceDividends : d.box1a)));
+  const foreignQualifiedDividends = sum(foreignDiv.map((d) => {
+    const src = d.foreignSourceDividends > 0 ? d.foreignSourceDividends : d.box1a;
+    return d.box1a > 0 ? r(src * (d.box1b / d.box1a)) : 0;
+  }));
+  if (foreignDiv.some((d) => d.foreignSourceDividends === 0)) warnings.push('A 1099-DIV with foreign tax has no foreign-source dividend amount entered; all of box 1a is treated as foreign source for Form 1116. Take the figure from the broker supplemental statement.');
+  const inherited = inheritedSales(ret.inheritedProperty);
+  const foreignLongTermGain = sum(inherited.map((s) => s.gainUsd));
+  const foreignTaxesPaid = sum(foreignInt.map((i) => r(i.foreignTaxPaid))) + sum(foreignDiv.map((d) => r(d.box7))) + sum(inherited.map((s) => s.foreignTaxPaidUsd));
+  // The direct election needs every foreign item on a payee statement (1099); foreign bank interest and a property sale are not.
+  const electionAllowed = ret.foreignTaxCreditMethod === 'auto' && foreignInt.length === 0 && inherited.length === 0 && foreignTaxesPaid <= p.foreignTaxCreditDirectLimit[ps];
+
   const capGainDist = sum(ret.div1099s.map((d) => r(d.box2a)));
-  const schedD = scheduleD(ret.lots, ret.capitalLossCarryover, capGainDist, fs, p);
+  const lots = [...ret.lots, ...inherited.map((s) => s.lot)];
+  const schedD = scheduleD(lots, ret.capitalLossCarryover, capGainDist, fs, p);
   const line7 = schedD.required ? schedD.line7Form1040 : capGainDist;
 
   const netSchedC = netScheduleC(ret);
@@ -208,8 +232,26 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   const line18 = line16 + line17;
 
   // ---- Credits ----
-  const sched3 = schedule3(ret, { taxBeforeCredits: line18 }, fs, p);
-  if (sched3.line1NeedsForm1116) warnings.push('Foreign tax paid exceeds the direct-election limit: Form 1116 is required and is not implemented; credit shown is unlimited.');
+  let f1116: Form1116 | null = null;
+  if (foreignTaxesPaid > 0 && !electionAllowed) {
+    const grossIncomeAllSources = line1z + line2b + line3b + max0(line7) + max0(line8);
+    f1116 = form1116({
+      foreignInterest, foreignOrdinaryDividends, foreignQualifiedDividends, foreignLongTermGain,
+      foreignTaxesPaid,
+      carryoverFromPriorYears: r(ret.foreignTaxCreditCarryover),
+      grossIncomeAllSources,
+      line3aDeductions: useItemized ? schedA.line4 + Math.min(schedA.line5b + schedA.line5c, schedA.line5e) : standardDeduction,
+      line3bDeductions: schedule1.line13 + schedule1.line20 + schedule1.line21 + schedule1.line24z,
+      mortgageInterest: useItemized ? schedA.line10 : 0,
+      taxableIncome: line15,
+      usTax: line18,
+      qdcg,
+    }, fs, p);
+    if (f1116.carryforward > 0) warnings.push(`Foreign tax of ${f1116.carryforward} exceeds this year's Form 1116 limit; carry it back one year or forward up to ten (Schedule B of Form 1116).`);
+    if (f1116.adjustmentRequired) warnings.push('Form 1116 rate differential adjustment applied to foreign capital gains and qualified dividends; the split across the 0%, 15% and 20% rates follows the worldwide worksheet proportions.');
+  }
+  const foreignTaxCredit = f1116 ? f1116.line35 : foreignTaxesPaid;
+  const sched3 = schedule3(ret, { taxBeforeCredits: line18, foreignTaxCredit, foreignTaxCreditMethod: f1116 ? 'form1116' : 'election' }, fs, p);
   const earnedIncome = line1z + max0(netSchedC) - schedule1.line15;
   const s8812 = schedule8812(ret, { agi, taxLimit: line18 - sched3.line8, earnedIncome }, fs, p);
   const line19 = s8812.line14;
@@ -259,7 +301,10 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   if (f8960.required) attachments.push('Form 8960');
   if (f8995.required) attachments.push('Form 8995');
   if (schedule1.line13 > 0) attachments.push('Form 8889');
-  if (fbarReport.form8938.likely) attachments.push('Form 8938');
+  if (f1116?.required) attachments.push('Form 1116');
+  const f3520 = form3520(ret, p);
+  const f8938 = form8938(ret, fs);
+  if (f8938.required) attachments.push('Form 8938');
 
   const separateFilings: string[] = [];
   for (const filing of fbarReport.filings) {
@@ -269,9 +314,9 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   }
   if (fbarReport.jointFilingAllowed) separateFilings.push('Spouses may submit one FBAR: file under the taxpayer, report the joint accounts in Part III, and keep a signed Form 114a');
   if (fbarReport.filings.some((f) => f.anyValueUnknown)) warnings.push('A foreign account has an unknown maximum value: FinCEN requires filing the FBAR and checking box 15a for that account.');
-  const t8938 = fbarReport.form8938.threshold;
-  if (fbarReport.form8938.likely) warnings.push(`Foreign accounts exceeded $${t8938.anyTime.toLocaleString('en-US')} during the year: Form 8938 must be attached to the return and is not implemented.`);
-  else if (fbarReport.form8938.possible) warnings.push(`Form 8938 is required if foreign assets were over $${t8938.lastDay.toLocaleString('en-US')} on December 31; check the year-end balances. Form 8938 is not implemented.`);
+  if (f8938.required && f8938.partV.some((a) => a.yearEndAssumed)) warnings.push('Form 8938: a foreign account has no December 31 balance entered, so its maximum value was used for the last-day test.');
+  if (f3520.required) separateFilings.push(`Form 3520 (foreign gifts and bequests, Part IV): mail to ${f3520.mailTo} by ${f3520.dueDate}, or ${f3520.extendedDueDate} if the return is extended. Late penalty 5% of the amount per month, up to 25%.`);
+  if (inherited.length) warnings.push('Inherited property: basis is the fair market value at the date of death (IRC 1014). Keep the appraisal or Korean inheritance-tax valuation and the exchange rates used.');
 
   if (ret.adjustments.hsaDeduction > 0) warnings.push('HSA deduction is taken as entered; Form 8889 limit checks are not yet implemented.');
   if (schedA.line8a > 0 && useItemized) warnings.push('Mortgage interest is taken as entered; the $750,000 acquisition-debt limit is not checked.');
@@ -297,7 +342,7 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
     schedule1, schedule2, schedule3: sched3,
     scheduleA: schedA, scheduleB, scheduleD: schedD, scheduleSE: se,
     schedule1A: s1a, schedule8812: s8812,
-    f8959, f8960, f8995, fbar: fbarReport, qdcg,
+    f8959, f8960, f8995, fbar: fbarReport, f1116, f3520, f8938, inheritedSales: inherited, qdcg,
     standardDeduction,
     attachments,
     separateFilings,

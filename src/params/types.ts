@@ -40,6 +40,8 @@ export interface TaxParams {
   socialSecurityWageBase: number;
   seTax: { ssRate: number; medicareRate: number; netEarningsFactor: number; minimum: number };
   foreignTaxCreditDirectLimit: ByStatus;
+  /** Form 3520 line 55: gifts from foreign corporations or partnerships above this must be reported (IRC 6039F, indexed). */
+  foreignGiftCorporateThreshold: number;
   qbi: { rate: number; threshold: ByStatus };
   hsa: { self: number; family: number; catchUp: number };
   medicalFloorRate: number;

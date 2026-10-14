@@ -118,6 +118,75 @@ const printAll = (c: ComputedReturn): void => {
     console.log(row('7b  Country', c.scheduleB.line7b.join(', ')));
   }
   printFbar(c);
+  printForeign(c);
+};
+
+const printForeign = (c: ComputedReturn): void => {
+  for (const sale of c.inheritedSales) {
+    console.log(`\n== Inherited property sale: ${sale.description} ==`);
+    console.log(row('Proceeds (USD)', sale.proceedsUsd, sale.currency !== 'USD' ? `converted at the sale-date rate` : ''));
+    console.log(row('Basis: fair market value at date of death (USD)', sale.basisUsd));
+    console.log(row('Selling costs (Form 8949 code E)', sale.sellingCostsUsd));
+    console.log(row('Long-term gain, Form 8949 Box F', sale.gainUsd));
+    console.log(row('Foreign tax paid on the sale (USD)', sale.foreignTaxPaidUsd));
+  }
+  if (c.f1116) {
+    const f = c.f1116;
+    console.log('\n== Form 1116, passive category ==');
+    console.log(row('Adjustment exception met', f.adjustmentExceptionMet ? 'Yes' : 'No'));
+    console.log(row('Rate differential adjustment applied', f.adjustmentRequired ? 'Yes' : 'No'));
+    console.log(row('1a  Foreign gross income (adjusted)', f.line1a, f.adjustmentRequired ? `unadjusted ${fmt(f.foreignGrossIncome)}` : ''));
+    console.log(row('3a  Standard deduction or certain itemized', f.line3a));
+    console.log(row('3b  Other deductions not definitely related', f.line3b));
+    console.log(row('3d  Foreign gross income', f.line3d));
+    console.log(row('3e  Gross income from all sources', f.line3e));
+    console.log(row('3f  Ratio', f.line3f.toFixed(4)));
+    console.log(row('3g  Apportioned deductions', f.line3g));
+    console.log(row('4a  Home mortgage interest apportioned', f.line4a));
+    console.log(row('5   Foreign source losses', f.line5));
+    console.log(row('7   Foreign taxable income', f.line7));
+    console.log(row('8   Foreign taxes paid', f.line8));
+    console.log(row('10  Carryover from prior years', f.line10));
+    console.log(row('14  Total available foreign taxes', f.line14));
+    console.log(row('18  Taxable income (worksheet if adjusted)', f.line18));
+    console.log(row('19  Limitation ratio', f.line19.toFixed(4)));
+    console.log(row('20  US tax before credits', f.line20));
+    console.log(row('21  Limitation', f.line21));
+    console.log(row('24  Credit (smaller of 14 and 23)', f.line24));
+    console.log(row('35  Foreign tax credit to Schedule 3 line 1', f.line35));
+    console.log(row('    Unused, carry back 1 year then forward 10', f.carryforward));
+  }
+  if (c.f3520.required) {
+    const f = c.f3520;
+    console.log('\n== Form 3520 Part IV ==');
+    console.log(row('Mail to', f.mailTo));
+    console.log(row('Due', `${f.dueDate}, ${f.extendedDueDate} if the return is extended`));
+    console.log(row('54  Gifts or bequests from nonresident aliens or foreign estates', f.line54.total, f.line54.required ? 'Yes' : 'No'));
+    if (f.line54.noneOver5000) console.log(row('    (b)', 'No gifts or bequests exceed $5,000.'));
+    for (const g of f.line54.gifts) console.log(row(`    (a) ${g.date}  (b) ${g.description || g.donorName}`, g.fmvUsd, g.currency !== 'USD' ? `${fmt(g.amount)} ${g.currency} at ${g.rate}` : ''));
+    console.log(row(`55  Gifts from foreign corporations or partnerships (over ${fmt(f.line55.threshold)})`, f.line55.total, f.line55.required ? 'Yes' : 'No'));
+    for (const g of f.line55.gifts) console.log(row(`    (a) ${g.date}  ${g.donorName} (${g.donorType})  ${g.description}`, g.fmvUsd));
+  }
+  if (c.f8938.hasAssets) {
+    const f = c.f8938;
+    console.log('\n== Form 8938 ==');
+    console.log(row('Required', f.required ? 'Yes' : 'No', `last day ${fmt(f.lastDayValue)} vs ${fmt(f.threshold.lastDay)}, any time ${fmt(f.anyTimeValue)} vs ${fmt(f.threshold.anyTime)}`));
+    if (!f.required) return;
+    console.log(row('Part I 5  Number of deposit accounts', f.partI.line5));
+    console.log(row('Part I 6  Maximum value of deposit accounts', f.partI.line6));
+    console.log(row('Part I 7  Number of custodial accounts', f.partI.line7));
+    console.log(row('Part I 8  Maximum value of custodial accounts', f.partI.line8));
+    console.log(row('Part I 9  Any account closed during the year', f.partI.line9AnyClosed ? 'Yes' : 'No'));
+    console.log(row('Part III  Interest from these accounts (Schedule B line 1)', f.partIII.interest));
+    for (const a of f.partV) {
+      console.log(`  Part V: ${a.institution || 'Account ' + (a.index + 1)}`);
+      console.log(row('    20  Type', a.kind === 'deposit' ? 'Deposit' : 'Custodial'));
+      console.log(row('    21  Account number', a.accountNumber));
+      console.log(row('    22  Opened / closed / joint with spouse', [a.openedThisYear ? 'opened' : '', a.closedThisYear ? 'closed' : '', a.jointWithSpouse ? 'joint with spouse' : ''].filter(Boolean).join(', ') || 'none'));
+      console.log(row('    23  Maximum value (USD)', a.maxValueUsd, a.currency !== 'USD' ? `${fmt(a.maxValue)} ${a.currency} at ${a.treasuryRate} per USD` : ''));
+      console.log(row('    26-28 Institution and address', [a.institution, a.address, a.country].filter(Boolean).join(', ')));
+    }
+  }
 };
 
 const printFbar = (c: ComputedReturn): void => {

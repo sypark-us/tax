@@ -51,6 +51,7 @@ export const params2025: TaxParams = {
   socialSecurityWageBase: 176_100,
   seTax: { ssRate: 0.124, medicareRate: 0.029, netEarningsFactor: 0.9235, minimum: 400 },
   foreignTaxCreditDirectLimit: { single: 300, mfj: 600, mfs: 300, hoh: 300 },
+  foreignGiftCorporateThreshold: 20_116,
   qbi: { rate: 0.2, threshold: { single: 197_300, mfj: 394_600, mfs: 197_300, hoh: 197_300 } },
   hsa: { self: 4_300, family: 8_550, catchUp: 1_000 },
   medicalFloorRate: 0.075,
@@ -68,7 +69,7 @@ export const params2025: TaxParams = {
   },
   charity: { nonItemizerCash: same(0), itemizedFloorRate: 0 },
   itemizedLimitationFor37Bracket: false,
-  unverified: [],
+  unverified: ['foreignGiftCorporateThreshold'],
   sources: {
     brackets: 'Rev. Proc. 2024-40 sec. 3.01',
     standardDeduction: 'OBBBA sec. 70102; IRS 2025 Form 1040 instructions',
@@ -76,5 +77,6 @@ export const params2025: TaxParams = {
     ctc: 'OBBBA sec. 70104; IRC 24',
     salt: 'OBBBA sec. 70120; IRC 164(b)(6)',
     schedule1A: 'OBBBA secs. 70201-70203, 70103; IRC 224, 225, 163(h)(4), 151',
+    foreignGiftCorporateThreshold: 'Rev. Proc. 2024-40 (IRC 6039F); secondary sources only, confirm at IRS.gov/InflationAdjustment',
   },
 };

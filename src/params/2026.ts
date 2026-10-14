@@ -40,6 +40,7 @@ export const params2026: TaxParams = {
   socialSecurityWageBase: 184_500,
   qbi: { rate: 0.2, threshold: { single: 201_775, mfj: 403_550, mfs: 201_775, hoh: 201_775 } },
   hsa: { self: 4_400, family: 8_750, catchUp: 1_000 },
+  foreignGiftCorporateThreshold: 20_573,
   charity: {
     nonItemizerCash: { single: 1_000, mfj: 2_000, mfs: 1_000, hoh: 1_000 },
     itemizedFloorRate: 0.005,
@@ -55,6 +56,7 @@ export const params2026: TaxParams = {
     'socialSecurityWageBase',
     'qbi.threshold',
     'hsa',
+    'foreignGiftCorporateThreshold',
   ],
   sources: {
     brackets: 'Rev. Proc. 2025-32 sec. 3.01 (single and MFJ confirmed via IR-2025-103)',
@@ -65,5 +67,6 @@ export const params2026: TaxParams = {
     charity: 'OBBBA secs. 70424-70425; IRC 170(p), 170(b)(1)(I)',
     itemizedLimitationFor37Bracket: 'OBBBA sec. 70111; IRC 68',
     schedule1A: 'OBBBA secs. 70201-70203, 70103',
+    foreignGiftCorporateThreshold: 'Rev. Proc. 2025-32 (IRC 6039F); secondary sources only, confirm at IRS.gov/InflationAdjustment',
   },
 };

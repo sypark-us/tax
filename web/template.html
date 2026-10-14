@@ -170,6 +170,10 @@
     capitalLossCarryover: { shortTerm: 0, longTerm: 0 },
     scheduleC: [],
     foreignAccounts: [],
+    inheritedProperty: [],
+    foreignGifts: [],
+    foreignTaxCreditMethod: 'auto',
+    foreignTaxCreditCarryover: 0,
     adjustments: { hsaDeduction: 0, iraDeduction: 0, studentLoanInterest: 0, other: 0 },
     itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 6000, personalPropertyTax: 0, mortgageInterest: 9000, charityCash: 2000, charityNoncash: 0, other: 0 },
     deductionMethod: 'auto',
@@ -181,17 +185,19 @@
     ...JSON.parse(JSON.stringify(EXAMPLE)),
     taxpayer: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
     spouse: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
-    dependents: [], w2s: [], int1099s: [], div1099s: [], lots: [], scheduleC: [], foreignAccounts: [],
+    dependents: [], w2s: [], int1099s: [], div1099s: [], lots: [], scheduleC: [], foreignAccounts: [], inheritedProperty: [], foreignGifts: [],
     itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 0, personalPropertyTax: 0, mortgageInterest: 0, charityCash: 0, charityNoncash: 0, other: 0 },
   });
   const NEW = {
     w2: () => ({ employer: '', owner: 'taxpayer', box1: 0, box2: 0, box3: 0, box4: 0, box5: 0, box6: 0, box12: [], qualifiedTips: 0, qualifiedOvertime: 0, state: '', box16: 0, box17: 0 }),
-    int: () => ({ payer: '', box1: 0, box3: 0, box4: 0, box8: 0 }),
-    div: () => ({ payer: '', box1a: 0, box1b: 0, box2a: 0, box4: 0, box5: 0, box7: 0 }),
-    lot: () => ({ description: '', dateAcquired: '', dateSold: '', proceeds: 0, basis: 0, adjustmentCode: '', adjustment: 0, term: 'long', basisReported: true }),
+    int: () => ({ payer: '', box1: 0, box3: 0, box4: 0, box8: 0, foreignCountry: '', foreignTaxPaid: 0 }),
+    div: () => ({ payer: '', box1a: 0, box1b: 0, box2a: 0, box4: 0, box5: 0, box7: 0, foreignSourceDividends: 0 }),
+    lot: () => ({ description: '', dateAcquired: '', dateSold: '', proceeds: 0, basis: 0, adjustmentCode: '', adjustment: 0, term: 'long', basisReported: true, reportedOn1099B: true }),
+    inh: () => ({ description: '', owner: 'taxpayer', country: '', dateOfDeath: '', dateSold: '', currency: 'USD', fmvAtDeath: 0, rateAtDeath: 1, salePrice: 0, rateAtSale: 1, sellingCosts: 0, foreignTaxPaid: 0, rateAtTaxPayment: 1 }),
+    gift: () => ({ date: '', description: '', donorName: '', donorType: 'estate', donorCountry: '', currency: 'USD', amount: 0, rate: 1 }),
     c: () => ({ name: '', owner: 'taxpayer', grossReceipts: 0, returnsAndAllowances: 0, costOfGoodsSold: 0, expenses: 0 }),
     dep: () => ({ name: '', relationship: 'child', age: 0, qualifyingChild: true, hasValidSsn: true }),
-    fa: () => ({ institution: '', accountNumber: '', accountType: 'bank', otherTypeDescription: '', street: '', city: '', stateProvince: '', postalCode: '', country: '', owner: 'taxpayer', signatureAuthorityOnly: false, currency: 'USD', maxValue: 0, maxValueUnknown: false, treasuryRate: 1 }),
+    fa: () => ({ institution: '', accountNumber: '', accountType: 'bank', otherTypeDescription: '', street: '', city: '', stateProvince: '', postalCode: '', country: '', owner: 'taxpayer', signatureAuthorityOnly: false, currency: 'USD', maxValue: 0, maxValueUnknown: false, treasuryRate: 1, openedThisYear: false, closedThisYear: false }),
   };
 
   let state = null;
@@ -204,6 +210,9 @@
   // Returns saved before a section existed get its empty list.
   if (!Array.isArray(state.foreignAccounts)) state.foreignAccounts = [];
   if (!state.deductionMethod) state.deductionMethod = state.forceStandardDeduction ? 'standard' : 'auto';
+  for (const k of ['inheritedProperty', 'foreignGifts']) if (!Array.isArray(state[k])) state[k] = [];
+  if (!state.foreignTaxCreditMethod) state.foreignTaxCreditMethod = 'auto';
+  if (typeof state.foreignTaxCreditCarryover !== 'number') state.foreignTaxCreditCarryover = 0;
 
   const persist = () => { try { localStorage.setItem('taxReturn', JSON.stringify(state)); } catch (e) { /* storage unavailable */ } };
   const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -230,7 +239,7 @@
     } else if (opts.type === 'text') {
       input = h('input', { id, type: 'text', 'data-path': path, 'data-kind': 'text', value: value || '', placeholder: opts.placeholder || '' });
     } else {
-      input = h('input', { id, type: 'number', step: 'any', 'data-path': path, 'data-kind': 'num', value: value === 0 || value ? value : '', placeholder: '0' });
+      input = h('input', { id, type: 'number', step: 'any', 'data-path': path, 'data-kind': opts.optional ? 'optnum' : 'num', value: value === 0 || value ? value : '', placeholder: opts.optional ? 'blank = not entered' : '0' });
     }
     const cap = opts.box ? [h('span', { class: 'box' }, opts.box), label] : [label];
     return h('label', { class: 'f' }, h('span', {}, ...cap), input);
@@ -242,9 +251,10 @@
     const kind = el.getAttribute('data-kind');
     let v;
     if (kind === 'num') v = el.value === '' ? 0 : Number(el.value);
+    else if (kind === 'optnum') v = el.value === '' ? undefined : Number(el.value);
     else if (kind === 'bool') v = el.checked;
     else v = el.value;
-    if (kind === 'num' && Number.isNaN(v)) return;
+    if ((kind === 'num' || kind === 'optnum') && Number.isNaN(v)) return;
     setPath(state, path, v);
     isExample = false;
     persist();
@@ -269,6 +279,8 @@
     { id: 'stocks', title: 'Stock sales', count: () => state.lots.length },
     { id: 'biz', title: 'Business', count: () => state.scheduleC.length },
     { id: 'foreign', title: 'Foreign accounts', count: () => state.foreignAccounts.length },
+    { id: 'inherit', title: 'Inherited property', count: () => state.inheritedProperty.length },
+    { id: 'gifts', title: 'Foreign gifts', count: () => state.foreignGifts.length },
     { id: 'ded', title: 'Deductions', count: () => '' },
     { id: 'pay', title: 'Payments', count: () => '' },
     { id: 'review', title: 'Review return', count: () => '' },
@@ -375,11 +387,12 @@
 
   const sectionInt = () => h('section', { id: 'sec_int' },
     h('h2', {}, '1099-INT interest'),
-    h('p', { class: 'lede' }, 'One card per payer. Schedule B is attached automatically when interest or dividends exceed $1,500.'),
+    h('p', { class: 'lede' }, 'One card per payer. Interest from a foreign bank goes here too: fill in the country and any foreign tax withheld (converted to dollars) and it feeds Form 1116. Schedule B is attached automatically when interest or dividends exceed $1,500 or there is a foreign account.'),
     ...state.int1099s.map((d, i) => docCard(d.payer || 'Payer ' + (i + 1), '1099-INT', 'int1099s', i, [
       field('Payer', 'int1099s.' + i + '.payer', { type: 'text' }), field('Interest income', 'int1099s.' + i + '.box1', { box: '1' }),
       field('US Treasury interest', 'int1099s.' + i + '.box3', { box: '3' }), field('Federal tax withheld', 'int1099s.' + i + '.box4', { box: '4' }),
-      field('Tax-exempt interest', 'int1099s.' + i + '.box8', { box: '8' })])),
+      field('Tax-exempt interest', 'int1099s.' + i + '.box8', { box: '8' }),
+      field('Foreign bank country (if no 1099)', 'int1099s.' + i + '.foreignCountry', { type: 'text', placeholder: 'Korea, South' }), field('Foreign tax withheld (USD)', 'int1099s.' + i + '.foreignTaxPaid')])),
     h('div', { class: 'row' }, addButton('Add 1099-INT', 'int1099s', NEW.int)));
 
   const sectionDiv = () => h('section', { id: 'sec_div' },
@@ -389,7 +402,7 @@
       field('Payer', 'div1099s.' + i + '.payer', { type: 'text' }), field('Total ordinary dividends', 'div1099s.' + i + '.box1a', { box: '1a' }),
       field('Qualified dividends', 'div1099s.' + i + '.box1b', { box: '1b' }), field('Capital gain distributions', 'div1099s.' + i + '.box2a', { box: '2a' }),
       field('Federal tax withheld', 'div1099s.' + i + '.box4', { box: '4' }), field('Section 199A dividends', 'div1099s.' + i + '.box5', { box: '5' }),
-      field('Foreign tax paid', 'div1099s.' + i + '.box7', { box: '7' })])),
+      field('Foreign tax paid', 'div1099s.' + i + '.box7', { box: '7' }), field('Foreign-source dividends (broker statement)', 'div1099s.' + i + '.foreignSourceDividends')])),
     h('div', { class: 'row' }, addButton('Add 1099-DIV', 'div1099s', NEW.div)));
 
   const sectionStocks = () => h('section', { id: 'sec_stocks' },
@@ -402,7 +415,7 @@
       field('Proceeds', 'lots.' + i + '.proceeds', { box: '1d' }), field('Cost basis', 'lots.' + i + '.basis', { box: '1e' }),
       field('Term', 'lots.' + i + '.term', { type: 'select', options: [['short', 'Short-term (1 year or less)'], ['long', 'Long-term']] }),
       field('Adjustment code', 'lots.' + i + '.adjustmentCode', { type: 'text', placeholder: 'W' }), field('Adjustment amount', 'lots.' + i + '.adjustment', { box: '1g' }),
-      field('Basis reported to IRS', 'lots.' + i + '.basisReported', { type: 'checkbox' })])),
+      field('Basis reported to IRS', 'lots.' + i + '.basisReported', { type: 'checkbox' }), field('Reported on a 1099-B', 'lots.' + i + '.reportedOn1099B', { type: 'checkbox' })])),
     h('div', { class: 'row' }, addButton('Add lot', 'lots', NEW.lot)));
 
   const sectionBiz = () => h('section', { id: 'sec_biz' },
@@ -417,7 +430,7 @@
   const faOwnerOpts = () => (['mfj', 'mfs', 'qss'].includes(state.filingStatus) ? [['taxpayer', 'Taxpayer'], ['spouse', 'Spouse'], ['joint', 'Taxpayer and spouse jointly']] : [['taxpayer', 'Taxpayer']]);
   const sectionForeign = () => h('section', { id: 'sec_foreign' },
     h('h2', {}, 'Foreign accounts (FBAR)'),
-    h('p', { class: 'lede' }, 'Bank, brokerage, pension and similar accounts held outside the United States. If their combined highest balances during the year topped $10,000, FinCEN Form 114 is due by April 15 and is e-filed at bsaefiling.fincen.treas.gov, never mailed with the return. Enter the highest balance in the account currency and the Treasury year-end rate (foreign units per US dollar) from fiscaldata.treasury.gov. Any foreign account also turns on Schedule B Part III.'),
+    h('p', { class: 'lede' }, 'Bank, brokerage, pension and similar accounts held outside the United States. If their combined highest balances during the year topped $10,000, FinCEN Form 114 is due by April 15 and is e-filed at bsaefiling.fincen.treas.gov, never mailed with the return. Enter the highest balance in the account currency and the Treasury year-end rate (foreign units per US dollar) from fiscaldata.treasury.gov. Any foreign account also turns on Schedule B Part III, and Form 8938 is attached to the return when the balances pass its thresholds.'),
     ...state.foreignAccounts.map((a, i) => docCard(a.institution || 'Account ' + (i + 1), a.signatureAuthorityOnly ? 'signature only' : a.owner === 'joint' ? 'joint' : a.owner, 'foreignAccounts', i, [
       field('Financial institution', 'foreignAccounts.' + i + '.institution', { type: 'text', box: '17' }), field('Account number', 'foreignAccounts.' + i + '.accountNumber', { type: 'text', box: '18' }),
       field('Type', 'foreignAccounts.' + i + '.accountType', { type: 'select', box: '16', options: [['bank', 'Bank'], ['securities', 'Securities'], ['other', 'Other']] }),
@@ -428,10 +441,35 @@
       field('Highest balance in the year', 'foreignAccounts.' + i + '.maxValue', { box: '15' }),
       field('Treasury rate, Dec 31 (units per USD)', 'foreignAccounts.' + i + '.treasuryRate'),
       field('Highest balance unknown', 'foreignAccounts.' + i + '.maxValueUnknown', { type: 'checkbox' }),
+      field('Balance on Dec 31 (Form 8938)', 'foreignAccounts.' + i + '.yearEndValue', { optional: true }),
+      field('Opened this year', 'foreignAccounts.' + i + '.openedThisYear', { type: 'checkbox' }), field('Closed this year', 'foreignAccounts.' + i + '.closedThisYear', { type: 'checkbox' }),
       field('Street', 'foreignAccounts.' + i + '.street', { type: 'text', box: '19' }), field('City', 'foreignAccounts.' + i + '.city', { type: 'text', box: '20' }),
       field('State or province', 'foreignAccounts.' + i + '.stateProvince', { type: 'text', box: '21' }), field('Postal code', 'foreignAccounts.' + i + '.postalCode', { type: 'text', box: '22' }),
       field('Country', 'foreignAccounts.' + i + '.country', { type: 'text', box: '23', placeholder: 'Korea, South' })])),
     h('div', { class: 'row' }, addButton('Add foreign account', 'foreignAccounts', NEW.fa)));
+
+  const sectionInherit = () => h('section', { id: 'sec_inherit' },
+    h('h2', {}, 'Inherited property'),
+    h('p', { class: 'lede' }, 'Property you inherited and then sold. Your basis is its fair market value on the date of death (IRC 1014) and the gain is always long-term. Enter amounts in the property currency with the exchange rate (units per US dollar) for each date; the sale goes on Form 8949 Box F and Schedule D. Foreign capital gains tax you paid becomes a Form 1116 credit. If you inherited cash instead of property, there is no gain to report; see Foreign gifts.'),
+    ...state.inheritedProperty.map((x, i) => docCard(x.description || 'Property ' + (i + 1), 'inherited', 'inheritedProperty', i, [
+      field('Description', 'inheritedProperty.' + i + '.description', { type: 'text', placeholder: 'Apartment, Seoul' }), field('Owner', 'inheritedProperty.' + i + '.owner', { type: 'select', options: ownerOpts() }),
+      field('Country', 'inheritedProperty.' + i + '.country', { type: 'text' }), field('Currency', 'inheritedProperty.' + i + '.currency', { type: 'text', placeholder: 'KRW' }),
+      field('Date of death', 'inheritedProperty.' + i + '.dateOfDeath', { type: 'date' }), field('Date sold', 'inheritedProperty.' + i + '.dateSold', { type: 'date' }),
+      field('Value at date of death', 'inheritedProperty.' + i + '.fmvAtDeath'), field('Rate at date of death (units per USD)', 'inheritedProperty.' + i + '.rateAtDeath'),
+      field('Sale price', 'inheritedProperty.' + i + '.salePrice'), field('Rate at sale (units per USD)', 'inheritedProperty.' + i + '.rateAtSale'),
+      field('Selling costs', 'inheritedProperty.' + i + '.sellingCosts'),
+      field('Foreign capital gains tax paid this year', 'inheritedProperty.' + i + '.foreignTaxPaid'), field('Rate when the tax was paid', 'inheritedProperty.' + i + '.rateAtTaxPayment')])),
+    h('div', { class: 'row' }, addButton('Add inherited property', 'inheritedProperty', NEW.inh)));
+
+  const sectionGifts = () => h('section', { id: 'sec_gifts' },
+    h('h2', {}, 'Foreign gifts and inheritances (Form 3520)'),
+    h('p', { class: 'lede' }, 'Money or property received from a person or estate outside the US. It is not taxable income, but once the total for the year from nonresident individuals and foreign estates passes $100,000, Form 3520 Part IV must be mailed to the IRS by the return due date. The late penalty is 5% of the amount per month, up to 25%. Enter each gift at its value on the day received, in its currency, with the exchange rate for that day.'),
+    ...state.foreignGifts.map((g, i) => docCard(g.description || g.donorName || 'Gift ' + (i + 1), g.donorType, 'foreignGifts', i, [
+      field('Date received', 'foreignGifts.' + i + '.date', { type: 'date' }), field('Description', 'foreignGifts.' + i + '.description', { type: 'text', placeholder: 'Inheritance from father, house sale proceeds' }),
+      field('From (name)', 'foreignGifts.' + i + '.donorName', { type: 'text' }), field('From (type)', 'foreignGifts.' + i + '.donorType', { type: 'select', options: [['estate', 'Foreign estate (inheritance)'], ['individual', 'Nonresident individual'], ['corporation', 'Foreign corporation'], ['partnership', 'Foreign partnership']] }),
+      field('Country', 'foreignGifts.' + i + '.donorCountry', { type: 'text' }), field('Currency', 'foreignGifts.' + i + '.currency', { type: 'text', placeholder: 'KRW' }),
+      field('Amount or value received', 'foreignGifts.' + i + '.amount'), field('Rate that day (units per USD)', 'foreignGifts.' + i + '.rate')])),
+    h('div', { class: 'row' }, addButton('Add gift or inheritance', 'foreignGifts', NEW.gift)));
 
   const sectionDed = () => h('section', { id: 'sec_ded' },
     h('h2', {}, 'Deductions and adjustments'),
@@ -443,7 +481,10 @@
       field('Mortgage interest', 'itemized.mortgageInterest'), field('Charity, cash', 'itemized.charityCash'), field('Charity, non-cash', 'itemized.charityNoncash'), field('Other itemized', 'itemized.other'),
       field('Deduction to take', 'deductionMethod', { type: 'select', options: [['auto', 'Whichever is larger'], ['standard', 'Standard deduction'], ['itemized', 'Itemized (Schedule A)']] }))),
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'New deductions'), h('span', { class: 'tag' }, 'Schedule 1-A')), h('div', { class: 'grid' },
-      field('Car loan interest', 'schedule1A.carLoanInterest'))));
+      field('Car loan interest', 'schedule1A.carLoanInterest'))),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Foreign tax credit'), h('span', { class: 'tag' }, 'Form 1116')), h('div', { class: 'grid' },
+      field('How to claim', 'foreignTaxCreditMethod', { type: 'select', options: [['auto', 'Directly on Schedule 3 when allowed, else Form 1116'], ['form1116', 'Always file Form 1116']] }),
+      field('Unused credit carried in from prior years', 'foreignTaxCreditCarryover'))));
 
   const sectionPay = () => h('section', { id: 'sec_pay' },
     h('h2', {}, 'Payments'),
@@ -471,7 +512,7 @@
 
   const renderSections = () => {
     const main = $('#main');
-    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionForeign(), sectionDed(), sectionPay(), sectionReview(), sectionData());
+    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionReview(), sectionData());
     $('#yearLabel').textContent = 'tax year ' + state.taxYear;
     renderRail();
     showActive();
@@ -582,6 +623,20 @@
           h('tr', { class: 'total' }, h('td', {}, 'Totals'), h('td', { class: 'amt' }, money(part.proceeds)), h('td', { class: 'amt' }, money(part.basis)), h('td', { class: 'amt' }, money(part.adjustment)), h('td', { class: 'amt' }, money(part.gain))))));
       }
     }
+    for (const sale of c.inheritedSales) det('Inherited property: ' + sale.description, kv({ 'Proceeds (USD)': sale.proceedsUsd, 'Basis: value at date of death (USD)': sale.basisUsd, 'Selling costs (code E)': sale.sellingCostsUsd, 'Long-term gain, Form 8949 Box F': sale.gainUsd, 'Foreign tax paid (USD)': sale.foreignTaxPaidUsd }));
+    if (c.f1116) det('Form 1116, foreign tax credit (passive)', kv({ 'Adjustment exception met': c.f1116.adjustmentExceptionMet, 'Rate differential adjustment applied': c.f1116.adjustmentRequired, 'Line 1a foreign gross income (adjusted)': c.f1116.line1a, 'Line 3g apportioned deductions': c.f1116.line3g, 'Line 4a mortgage interest apportioned': c.f1116.line4a, 'Line 7 foreign taxable income': c.f1116.line7, 'Line 8 foreign taxes paid': c.f1116.line8, 'Line 10 carryover from prior years': c.f1116.line10, 'Line 18 taxable income': c.f1116.line18, 'Line 21 limitation': c.f1116.line21, 'Line 35 credit to Schedule 3': c.f1116.line35, 'Unused credit to carry over': c.f1116.carryforward }));
+    if (c.f3520.required) det('Form 3520 Part IV (mail separately)', h('div', {},
+      h('p', { style: 'margin:0 0 6px' }, 'Mail to ' + c.f3520.mailTo + ' by ' + c.f3520.dueDate + ' (' + c.f3520.extendedDueDate + ' if the return is extended).'),
+      kv({ 'Line 54 total from nonresident individuals and foreign estates': c.f3520.line54.total, 'Line 54 required': c.f3520.line54.required, 'Line 55 total from foreign corporations and partnerships': c.f3520.line55.total, 'Line 55 required': c.f3520.line55.required }),
+      c.f3520.line54.noneOver5000 ? h('p', { class: 'mono' }, 'Line 54(b): No gifts or bequests exceed $5,000.') : null,
+      c.f3520.line54.gifts.length || c.f3520.line55.gifts.length ? h('div', { class: 'tablewrap' }, h('table', { class: 'lines' },
+        h('tr', { class: 'head' }, h('td', {}, '(a) Date'), h('td', {}, '(b) Description'), h('td', { class: 'amt' }, '(c) Value USD'), h('td', { class: 'note' }, '')),
+        [...c.f3520.line54.gifts, ...c.f3520.line55.gifts].map((g) => h('tr', {}, h('td', {}, g.date), h('td', {}, (g.description || g.donorName) + (g.donorType !== 'individual' && g.donorType !== 'estate' ? ' (' + g.donorName + ', ' + g.donorType + ')' : '')), h('td', { class: 'amt' }, money(g.fmvUsd)), h('td', { class: 'note' }, g.currency !== 'USD' ? money(g.amount) + ' ' + g.currency + ' at ' + g.rate : ''))))) : null));
+    if (c.f8938.hasAssets) det('Form 8938' + (c.f8938.required ? '' : ' (not required)'), h('div', {},
+      kv({ 'Value on December 31': c.f8938.lastDayValue, 'Threshold, last day': c.f8938.threshold.lastDay, 'Highest value during the year': c.f8938.anyTimeValue, 'Threshold, any time': c.f8938.threshold.anyTime, 'Required': c.f8938.required, 'Part I line 5 deposit accounts': c.f8938.partI.line5, 'Part I line 6 deposit maximum value': c.f8938.partI.line6, 'Part I line 7 custodial accounts': c.f8938.partI.line7, 'Part I line 8 custodial maximum value': c.f8938.partI.line8, 'Part I line 9 any closed': c.f8938.partI.line9AnyClosed, 'Part III interest from these accounts': c.f8938.partIII.interest }),
+      c.f8938.required ? h('div', { class: 'tablewrap' }, h('table', { class: 'lines' },
+        h('tr', { class: 'head' }, h('td', {}, 'Part V account'), h('td', {}, 'Type / flags'), h('td', { class: 'amt' }, 'Max value USD'), h('td', { class: 'note' }, 'Institution')),
+        c.f8938.partV.map((a) => h('tr', {}, h('td', {}, a.accountNumber || 'Account ' + (a.index + 1)), h('td', {}, [a.kind, a.openedThisYear ? 'opened' : '', a.closedThisYear ? 'closed' : '', a.jointWithSpouse ? 'joint' : ''].filter(Boolean).join(', ')), h('td', { class: 'amt' }, money(a.maxValueUsd)), h('td', { class: 'note' }, [a.institution, a.address, a.country].filter(Boolean).join(', ')))))) : null));
     if (f.line12IsItemized) det('Schedule A', kv({ 'Line 4 medical after floor': c.scheduleA.line4, 'Line 5d state and local taxes paid': c.scheduleA.line5d, 'SALT cap applied': c.scheduleA.saltCapApplied, 'Line 5e deductible taxes': c.scheduleA.line5e, 'Line 10 mortgage interest': c.scheduleA.line10, 'Line 14 charity': c.scheduleA.line14, 'Line 17 total': c.scheduleA.line17 }));
     if (c.schedule1.line10 || c.schedule1.line26) det('Schedule 1', kv({ 'Line 3 business income': c.schedule1.line3, 'Line 10 additional income': c.schedule1.line10, 'Line 13 HSA': c.schedule1.line13, 'Line 15 half of SE tax': c.schedule1.line15, 'Line 20 IRA': c.schedule1.line20, 'Line 21 student loan interest': c.schedule1.line21, 'Line 26 total adjustments': c.schedule1.line26 }));
     for (const s of c.scheduleSE) det('Schedule SE (' + s.owner + ')', kv({ 'Net profit': s.netProfit, 'Line 4a net earnings': s.line4a, 'Social Security part': s.socialSecurityTax, 'Medicare part': s.medicareTax, 'Line 12 SE tax': s.line12, 'Line 13 deductible half': s.line13 }));

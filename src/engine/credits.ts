@@ -35,7 +35,7 @@ export const schedule8812 = (
 
 export interface Schedule3 {
   line1: number; // foreign tax credit
-  line1NeedsForm1116: boolean;
+  line1Method: 'none' | 'election' | 'form1116';
   line8: number; // total nonrefundable -> 1040 line 20
   line11: number; // excess social security withheld
   line15: number; // total other payments -> 1040 line 31
@@ -43,14 +43,12 @@ export interface Schedule3 {
 
 export const schedule3 = (
   ret: TaxReturn,
-  inp: { taxBeforeCredits: number },
+  inp: { taxBeforeCredits: number; foreignTaxCredit: number; foreignTaxCreditMethod: Schedule3['line1Method'] },
   fs: FilingStatus,
   p: TaxParams,
 ): Schedule3 => {
-  const ps = paramStatus(fs);
-  const foreignTax = sum(ret.div1099s.map((d) => r(d.box7)));
-  const line1NeedsForm1116 = foreignTax > p.foreignTaxCreditDirectLimit[ps];
-  const line1 = Math.min(foreignTax, max0(inp.taxBeforeCredits));
+  const line1 = Math.min(r(inp.foreignTaxCredit), max0(inp.taxBeforeCredits));
+  const line1Method = line1 > 0 ? inp.foreignTaxCreditMethod : 'none';
   const line8 = line1;
 
   let line11 = 0;
@@ -61,7 +59,7 @@ export const schedule3 = (
     line11 += max0(sum(w2s.map((w) => r(w.box4))) - maxSs);
   }
   const line15 = line11 + r(ret.payments.extension);
-  return { line1, line1NeedsForm1116, line8, line11, line15 };
+  return { line1, line1Method, line8, line11, line15 };
 };
 
 export interface Form8995 {

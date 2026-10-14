@@ -82,16 +82,12 @@ describe('FBAR filing requirement', () => {
     expect(f.jointFilingAllowed).toBe(true);
   });
 
-  it('counts a joint account once in the household Form 8938 aggregate', () => {
+  it('counts a joint account once in the household aggregate', () => {
     const ret = parseReturn({
       ...base, filingStatus: 'mfj', spouse: { firstName: 'Sam', lastName: 'Kim' },
       foreignAccounts: [acct({ maxValue: 120_000, owner: 'joint' })],
     });
-    const f = fbar(ret);
-    expect(f.aggregateMaxUsd).toBe(120_000);
-    expect(f.form8938.likely).toBe(false);
-    expect(f.form8938.possible).toBe(true);
-    expect(fbar(parseReturn({ ...base, filingStatus: 'single', foreignAccounts: [acct({ maxValue: 80_000 })] })).form8938.likely).toBe(true);
+    expect(fbar(ret).aggregateMaxUsd).toBe(120_000);
   });
 
   it('sets due dates for the year after the tax year', () => {
@@ -125,7 +121,7 @@ describe('FBAR in the computed return', () => {
     expect(c.separateFilings).toHaveLength(1);
     expect(c.separateFilings[0]).toMatch(/FinCEN Form 114 FBAR: e-file with FinCEN by 2026-04-15/);
     expect(c.attachments).toContain('Form 8938');
-    expect(c.warnings.some((w) => w.includes('Form 8938 must be attached'))).toBe(true);
+    expect(c.f8938.required).toBe(true);
   });
 
   it('is absent when there are no foreign accounts', () => {

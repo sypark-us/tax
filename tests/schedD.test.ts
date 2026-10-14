@@ -5,7 +5,7 @@ import type { Lot } from '../src/model';
 
 const p = paramsFor(2025);
 const lot = (o: Partial<Lot> & Pick<Lot, 'proceeds' | 'basis' | 'term'>): Lot => ({
-  description: '', dateAcquired: '', dateSold: '', adjustmentCode: '', adjustment: 0, basisReported: true, ...o,
+  description: '', dateAcquired: '', dateSold: '', adjustmentCode: '', adjustment: 0, basisReported: true, reportedOn1099B: true, ...o,
 });
 const none = { shortTerm: 0, longTerm: 0 };
 

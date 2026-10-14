@@ -45,6 +45,7 @@ Forms produced:
 - Form 6251 (AMT) at least as a check that AMT doesn't apply, full computation if it does
 - Qualified Dividends and Capital Gain Tax Worksheet, Schedule D Tax Worksheet
 - Form 1040-V and a summary sheet
+- Foreign inheritance set: Form 3520 Part IV (separate mailing, threshold and penalty check), inherited property sale with IRC 1014 basis on Form 8949 Box F, Form 1116 passive category with the rate differential adjustment and carryover, Form 8938 Parts I, III and V for accounts. Treaty rates and the general category are out of scope.
 - FinCEN Form 114 (FBAR) worksheet: not an IRS form and not mailable, so the engine decides who must file, converts at the Treasury year-end rate, lays accounts out by Part for the BSA E-Filing System, and fills Schedule B Part III. Form 8938 is only threshold-checked.
 
 ### Later

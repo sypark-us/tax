@@ -71,21 +71,23 @@ export const scheduleD = (
   const st = lots.filter((l) => l.term === 'short');
   const lt = lots.filter((l) => l.term === 'long');
   const parts: F8949Part[] = [];
-  const A = part('A', st.filter((l) => l.basisReported));
-  const B = part('B', st.filter((l) => !l.basisReported));
-  const D = part('D', lt.filter((l) => l.basisReported));
-  const E = part('E', lt.filter((l) => !l.basisReported));
-  for (const x of [A, B, D, E]) if (x.rows.length) parts.push(x);
+  const A = part('A', st.filter((l) => l.reportedOn1099B && l.basisReported));
+  const B = part('B', st.filter((l) => l.reportedOn1099B && !l.basisReported));
+  const C = part('C', st.filter((l) => !l.reportedOn1099B));
+  const D = part('D', lt.filter((l) => l.reportedOn1099B && l.basisReported));
+  const E = part('E', lt.filter((l) => l.reportedOn1099B && !l.basisReported));
+  const F = part('F', lt.filter((l) => !l.reportedOn1099B));
+  for (const x of [A, B, C, D, E, F]) if (x.rows.length) parts.push(x);
 
   const line1b = A.gain;
   const line2 = B.gain;
-  const line3 = 0;
+  const line3 = C.gain;
   const line6 = -max0(r(carryover.shortTerm));
   const line7 = line1b + line2 + line3 + line6;
 
   const line8b = D.gain;
   const line9 = E.gain;
-  const line10 = 0;
+  const line10 = F.gain;
   const line13 = r(capitalGainDistributions);
   const line14 = -max0(r(carryover.longTerm));
   const line15 = line8b + line9 + line10 + line13 + line14;

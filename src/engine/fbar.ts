@@ -6,8 +6,8 @@
  * Form 1040, and it cannot be mailed. This module decides who must file,
  * converts each account to US dollars the way the FinCEN instructions say,
  * and lays the accounts out by Part so they can be typed into the online
- * form. It also feeds Schedule B Part III (line 7a/7b) and warns when the
- * Form 8938 (FATCA) thresholds look exceeded.
+ * form. It also feeds Schedule B Part III (line 7a/7b) and feeds the
+ * Form 8938 worksheet in foreign.ts.
  *
  * Rules applied (31 CFR 1010.350, FinCEN Form 114 instructions):
  * - A US person must file when the aggregate maximum value of all foreign
@@ -27,16 +27,6 @@
 import type { FilingStatus, ForeignAccount, TaxReturn } from '../model';
 
 export const FBAR_THRESHOLD = 10_000;
-
-/**
- * Form 8938 thresholds for taxpayers living in the United States
- * (IRC 6038D, Form 8938 instructions): value on the last day of the year,
- * or at any time during the year.
- */
-export const FORM_8938_THRESHOLDS: Record<'joint' | 'other', { lastDay: number; anyTime: number }> = {
-  joint: { lastDay: 100_000, anyTime: 150_000 },
-  other: { lastDay: 50_000, anyTime: 75_000 },
-};
 
 export type FbarPart = 'II' | 'III' | 'IV';
 export type FbarFiler = 'taxpayer' | 'spouse';
@@ -84,9 +74,8 @@ export interface Fbar {
   /** Spouses can submit a single FBAR with Form 114a. */
   jointFilingAllowed: boolean;
   countries: string[];
-  /** Household aggregate used for the Form 8938 check. */
+  /** Household aggregate, each account counted once. */
   aggregateMaxUsd: number;
-  form8938: { threshold: { lastDay: number; anyTime: number }; likely: boolean; possible: boolean };
   dueDate: string;
   extendedDueDate: string;
 }
@@ -175,15 +164,6 @@ export const fbar = (ret: TaxReturn): Fbar => {
   const aggregateMaxUsd = all.reduce((s, x) => s + x.maxValueUsd, 0);
   const countries = [...new Set(all.map((x) => x.country.trim()).filter(Boolean))].sort();
 
-  const threshold = FORM_8938_THRESHOLDS[fs === 'mfj' ? 'joint' : 'other'];
-  // Only maximum values are entered, so the any-time test is exact and the
-  // last-day test can only say "possible".
-  const form8938 = {
-    threshold,
-    likely: aggregateMaxUsd > threshold.anyTime,
-    possible: aggregateMaxUsd > threshold.lastDay,
-  };
-
   return {
     hasAccounts: ret.foreignAccounts.length > 0,
     required: filings.some((f) => f.required),
@@ -191,7 +171,6 @@ export const fbar = (ret: TaxReturn): Fbar => {
     jointFilingAllowed,
     countries,
     aggregateMaxUsd,
-    form8938,
     dueDate: `${year + 1}-04-15`,
     extendedDueDate: `${year + 1}-10-15`,
   };

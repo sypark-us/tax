@@ -49,6 +49,10 @@ export const Int1099Schema = z.object({
   box3: money0,
   box4: money0,
   box8: money0,
+  /** Set for interest from a foreign bank (no 1099 issued): makes it foreign source income for Form 1116. */
+  foreignCountry: z.string().default(''),
+  /** Foreign income tax withheld on this interest, in US dollars. */
+  foreignTaxPaid: money0,
 });
 
 export const Div1099Schema = z.object({
@@ -59,6 +63,8 @@ export const Div1099Schema = z.object({
   box4: money0,
   box5: money0,
   box7: money0,
+  /** Foreign-source portion of box 1a from the broker's supplemental statement. 0 means use box 1a when box 7 is set. */
+  foreignSourceDividends: money0,
 });
 
 export const LotSchema = z.object({
@@ -74,6 +80,49 @@ export const LotSchema = z.object({
   term: z.enum(['short', 'long']),
   /** Basis reported to the IRS on 1099-B: box A/D if true, B/E if false. */
   basisReported: z.boolean().default(true),
+  /** False when no 1099-B was issued at all (box C/F), e.g. foreign property. */
+  reportedOn1099B: z.boolean().default(true),
+});
+
+/**
+ * Sale of property acquired by inheritance (IRC 1014: basis is the fair
+ * market value at the date of death, holding period is long-term). Amounts
+ * are in the property's currency with the spot rate for each date.
+ */
+export const InheritedPropertySchema = z.object({
+  description: z.string().default(''),
+  owner,
+  country: z.string().default(''),
+  dateOfDeath: z.string().default(''),
+  dateSold: z.string().default(''),
+  currency: z.string().default('USD'),
+  /** Fair market value at the date of death, in the property currency. */
+  fmvAtDeath: money0,
+  /** Units of the property currency per 1 USD on the date of death. */
+  rateAtDeath: z.number().positive().default(1),
+  salePrice: money0,
+  /** Units per 1 USD on the sale date; also applied to selling costs. */
+  rateAtSale: z.number().positive().default(1),
+  /** Commissions, transfer taxes, legal fees of the sale, in the property currency. */
+  sellingCosts: money0,
+  /** Foreign capital gains tax actually paid in the tax year, in the property currency. */
+  foreignTaxPaid: money0,
+  /** Units per 1 USD on the date the foreign tax was paid. */
+  rateAtTaxPayment: z.number().positive().default(1),
+});
+
+/** Gift or bequest from a foreign person, for Form 3520 Part IV. */
+export const ForeignGiftSchema = z.object({
+  date: z.string().default(''),
+  description: z.string().default(''),
+  donorName: z.string().default(''),
+  donorType: z.enum(['individual', 'estate', 'corporation', 'partnership']).default('individual'),
+  donorCountry: z.string().default(''),
+  currency: z.string().default('USD'),
+  /** Fair market value when received, in the gift currency. */
+  amount: money0,
+  /** Units per 1 USD on the date received. */
+  rate: z.number().positive().default(1),
 });
 
 /**
@@ -107,6 +156,10 @@ export const ForeignAccountSchema = z.object({
   maxValueUnknown: z.boolean().default(false),
   /** Treasury Reporting Rate of Exchange on December 31: foreign units per 1 USD. */
   treasuryRate: z.number().positive().default(1),
+  /** Balance on December 31 in the account currency, for the Form 8938 last-day test. Omit to assume the maximum. */
+  yearEndValue: money.optional(),
+  openedThisYear: z.boolean().default(false),
+  closedThisYear: z.boolean().default(false),
 });
 
 export const ScheduleCSchema = z.object({
@@ -132,6 +185,12 @@ export const TaxReturnSchema = z.object({
   capitalLossCarryover: z.object({ shortTerm: money0, longTerm: money0 }).default({}),
   scheduleC: z.array(ScheduleCSchema).default([]),
   foreignAccounts: z.array(ForeignAccountSchema).default([]),
+  inheritedProperty: z.array(InheritedPropertySchema).default([]),
+  foreignGifts: z.array(ForeignGiftSchema).default([]),
+  /** auto: claim foreign tax directly on Schedule 3 when the $300/$600 election is available, else Form 1116. */
+  foreignTaxCreditMethod: z.enum(['auto', 'form1116']).default('auto'),
+  /** Unused passive-category foreign tax credit carried in from earlier years (Form 1116 line 10). */
+  foreignTaxCreditCarryover: money0,
   adjustments: z
     .object({
       hsaDeduction: money0,
@@ -177,5 +236,7 @@ export type W2 = z.infer<typeof W2Schema>;
 export type Lot = z.infer<typeof LotSchema>;
 export type Dependent = z.infer<typeof DependentSchema>;
 export type ForeignAccount = z.infer<typeof ForeignAccountSchema>;
+export type InheritedProperty = z.infer<typeof InheritedPropertySchema>;
+export type ForeignGift = z.infer<typeof ForeignGiftSchema>;
 
 export const parseReturn = (raw: unknown): TaxReturn => TaxReturnSchema.parse(raw);
