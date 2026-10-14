@@ -76,6 +76,39 @@ export const LotSchema = z.object({
   basisReported: z.boolean().default(true),
 });
 
+/**
+ * A foreign financial account for FinCEN Form 114 (FBAR) and Schedule B Part III.
+ * Values are in the account currency; the engine converts at the Treasury
+ * year-end rate the user enters (foreign units per 1 USD, 1 for USD).
+ */
+export const ForeignAccountSchema = z.object({
+  institution: z.string().default(''),
+  accountNumber: z.string().default(''),
+  accountType: z.enum(['bank', 'securities', 'other']).default('bank'),
+  /** Description when accountType is other (e.g. pension, insurance). */
+  otherTypeDescription: z.string().default(''),
+  street: z.string().default(''),
+  city: z.string().default(''),
+  stateProvince: z.string().default(''),
+  postalCode: z.string().default(''),
+  /** Country where the account is held (name as FinCEN lists it). */
+  country: z.string().default(''),
+  /** taxpayer or spouse alone, or joint between the two spouses. */
+  owner: z.enum(['taxpayer', 'spouse', 'joint']).default('taxpayer'),
+  /** A joint owner other than the spouse (puts the account in Part III). */
+  otherJointOwner: z.object({ name: z.string().default(''), tin: z.string().default(''), address: z.string().default('') }).optional(),
+  /** Signature authority only, no financial interest (Part IV). */
+  signatureAuthorityOnly: z.boolean().default(false),
+  /** ISO 4217 code of the account currency. */
+  currency: z.string().default('USD'),
+  /** Highest balance during the calendar year, in the account currency. */
+  maxValue: money0,
+  /** FinCEN box 15a: the maximum value could not be determined. */
+  maxValueUnknown: z.boolean().default(false),
+  /** Treasury Reporting Rate of Exchange on December 31: foreign units per 1 USD. */
+  treasuryRate: z.number().positive().default(1),
+});
+
 export const ScheduleCSchema = z.object({
   name: z.string().default(''),
   owner,
@@ -98,6 +131,7 @@ export const TaxReturnSchema = z.object({
   lots: z.array(LotSchema).default([]),
   capitalLossCarryover: z.object({ shortTerm: money0, longTerm: money0 }).default({}),
   scheduleC: z.array(ScheduleCSchema).default([]),
+  foreignAccounts: z.array(ForeignAccountSchema).default([]),
   adjustments: z
     .object({
       hsaDeduction: money0,
@@ -119,6 +153,9 @@ export const TaxReturnSchema = z.object({
       other: money0,
     })
     .default({}),
+  /** auto takes the larger of standard and itemized; the other two force the choice. */
+  deductionMethod: z.enum(['auto', 'standard', 'itemized']).default('auto'),
+  /** Older files: equivalent to deductionMethod standard. */
   forceStandardDeduction: z.boolean().default(false),
   schedule1A: z
     .object({
@@ -139,5 +176,6 @@ export type FilingStatus = z.infer<typeof FilingStatusSchema>;
 export type W2 = z.infer<typeof W2Schema>;
 export type Lot = z.infer<typeof LotSchema>;
 export type Dependent = z.infer<typeof DependentSchema>;
+export type ForeignAccount = z.infer<typeof ForeignAccountSchema>;
 
 export const parseReturn = (raw: unknown): TaxReturn => TaxReturnSchema.parse(raw);

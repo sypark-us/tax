@@ -169,8 +169,10 @@
     ],
     capitalLossCarryover: { shortTerm: 0, longTerm: 0 },
     scheduleC: [],
+    foreignAccounts: [],
     adjustments: { hsaDeduction: 0, iraDeduction: 0, studentLoanInterest: 0, other: 0 },
     itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 6000, personalPropertyTax: 0, mortgageInterest: 9000, charityCash: 2000, charityNoncash: 0, other: 0 },
+    deductionMethod: 'auto',
     forceStandardDeduction: false,
     schedule1A: { carLoanInterest: 0 },
     payments: { estimated: 0, extension: 0, otherWithholding: 0 },
@@ -179,7 +181,7 @@
     ...JSON.parse(JSON.stringify(EXAMPLE)),
     taxpayer: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
     spouse: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
-    dependents: [], w2s: [], int1099s: [], div1099s: [], lots: [], scheduleC: [],
+    dependents: [], w2s: [], int1099s: [], div1099s: [], lots: [], scheduleC: [], foreignAccounts: [],
     itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 0, personalPropertyTax: 0, mortgageInterest: 0, charityCash: 0, charityNoncash: 0, other: 0 },
   });
   const NEW = {
@@ -189,6 +191,7 @@
     lot: () => ({ description: '', dateAcquired: '', dateSold: '', proceeds: 0, basis: 0, adjustmentCode: '', adjustment: 0, term: 'long', basisReported: true }),
     c: () => ({ name: '', owner: 'taxpayer', grossReceipts: 0, returnsAndAllowances: 0, costOfGoodsSold: 0, expenses: 0 }),
     dep: () => ({ name: '', relationship: 'child', age: 0, qualifyingChild: true, hasValidSsn: true }),
+    fa: () => ({ institution: '', accountNumber: '', accountType: 'bank', otherTypeDescription: '', street: '', city: '', stateProvince: '', postalCode: '', country: '', owner: 'taxpayer', signatureAuthorityOnly: false, currency: 'USD', maxValue: 0, maxValueUnknown: false, treasuryRate: 1 }),
   };
 
   let state = null;
@@ -198,6 +201,9 @@
     if (saved) state = JSON.parse(saved);
   } catch (e) { state = null; }
   if (!state) { state = JSON.parse(JSON.stringify(EXAMPLE)); isExample = true; }
+  // Returns saved before a section existed get its empty list.
+  if (!Array.isArray(state.foreignAccounts)) state.foreignAccounts = [];
+  if (!state.deductionMethod) state.deductionMethod = state.forceStandardDeduction ? 'standard' : 'auto';
 
   const persist = () => { try { localStorage.setItem('taxReturn', JSON.stringify(state)); } catch (e) { /* storage unavailable */ } };
   const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -262,6 +268,7 @@
     { id: 'div', title: '1099-DIV dividends', count: () => state.div1099s.length },
     { id: 'stocks', title: 'Stock sales', count: () => state.lots.length },
     { id: 'biz', title: 'Business', count: () => state.scheduleC.length },
+    { id: 'foreign', title: 'Foreign accounts', count: () => state.foreignAccounts.length },
     { id: 'ded', title: 'Deductions', count: () => '' },
     { id: 'pay', title: 'Payments', count: () => '' },
     { id: 'review', title: 'Review return', count: () => '' },
@@ -407,6 +414,25 @@
       field('Cost of goods sold', 'scheduleC.' + i + '.costOfGoodsSold', { box: '4' }), field('Total expenses', 'scheduleC.' + i + '.expenses', { box: '28' })])),
     h('div', { class: 'row' }, addButton('Add business', 'scheduleC', NEW.c)));
 
+  const faOwnerOpts = () => (['mfj', 'mfs', 'qss'].includes(state.filingStatus) ? [['taxpayer', 'Taxpayer'], ['spouse', 'Spouse'], ['joint', 'Taxpayer and spouse jointly']] : [['taxpayer', 'Taxpayer']]);
+  const sectionForeign = () => h('section', { id: 'sec_foreign' },
+    h('h2', {}, 'Foreign accounts (FBAR)'),
+    h('p', { class: 'lede' }, 'Bank, brokerage, pension and similar accounts held outside the United States. If their combined highest balances during the year topped $10,000, FinCEN Form 114 is due by April 15 and is e-filed at bsaefiling.fincen.treas.gov, never mailed with the return. Enter the highest balance in the account currency and the Treasury year-end rate (foreign units per US dollar) from fiscaldata.treasury.gov. Any foreign account also turns on Schedule B Part III.'),
+    ...state.foreignAccounts.map((a, i) => docCard(a.institution || 'Account ' + (i + 1), a.signatureAuthorityOnly ? 'signature only' : a.owner === 'joint' ? 'joint' : a.owner, 'foreignAccounts', i, [
+      field('Financial institution', 'foreignAccounts.' + i + '.institution', { type: 'text', box: '17' }), field('Account number', 'foreignAccounts.' + i + '.accountNumber', { type: 'text', box: '18' }),
+      field('Type', 'foreignAccounts.' + i + '.accountType', { type: 'select', box: '16', options: [['bank', 'Bank'], ['securities', 'Securities'], ['other', 'Other']] }),
+      field('Other type description', 'foreignAccounts.' + i + '.otherTypeDescription', { type: 'text' }),
+      field('Owner', 'foreignAccounts.' + i + '.owner', { type: 'select', options: faOwnerOpts() }),
+      field('Signature authority only', 'foreignAccounts.' + i + '.signatureAuthorityOnly', { type: 'checkbox' }),
+      field('Currency', 'foreignAccounts.' + i + '.currency', { type: 'text', placeholder: 'USD' }),
+      field('Highest balance in the year', 'foreignAccounts.' + i + '.maxValue', { box: '15' }),
+      field('Treasury rate, Dec 31 (units per USD)', 'foreignAccounts.' + i + '.treasuryRate'),
+      field('Highest balance unknown', 'foreignAccounts.' + i + '.maxValueUnknown', { type: 'checkbox' }),
+      field('Street', 'foreignAccounts.' + i + '.street', { type: 'text', box: '19' }), field('City', 'foreignAccounts.' + i + '.city', { type: 'text', box: '20' }),
+      field('State or province', 'foreignAccounts.' + i + '.stateProvince', { type: 'text', box: '21' }), field('Postal code', 'foreignAccounts.' + i + '.postalCode', { type: 'text', box: '22' }),
+      field('Country', 'foreignAccounts.' + i + '.country', { type: 'text', box: '23', placeholder: 'Korea, South' })])),
+    h('div', { class: 'row' }, addButton('Add foreign account', 'foreignAccounts', NEW.fa)));
+
   const sectionDed = () => h('section', { id: 'sec_ded' },
     h('h2', {}, 'Deductions and adjustments'),
     h('p', { class: 'lede' }, 'Enter what you paid. The engine applies the SALT cap, picks itemized or standard, and adds the Schedule 1-A deductions.'),
@@ -415,7 +441,7 @@
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Itemized deductions'), h('span', { class: 'tag' }, 'Schedule A')), h('div', { class: 'grid' },
       field('Medical and dental', 'itemized.medical'), field('State income tax beyond W-2', 'itemized.stateLocalIncomeTaxOther'), field('Real estate tax', 'itemized.realEstateTax'), field('Personal property tax', 'itemized.personalPropertyTax'),
       field('Mortgage interest', 'itemized.mortgageInterest'), field('Charity, cash', 'itemized.charityCash'), field('Charity, non-cash', 'itemized.charityNoncash'), field('Other itemized', 'itemized.other'),
-      field('Force standard deduction', 'forceStandardDeduction', { type: 'checkbox' }))),
+      field('Deduction to take', 'deductionMethod', { type: 'select', options: [['auto', 'Whichever is larger'], ['standard', 'Standard deduction'], ['itemized', 'Itemized (Schedule A)']] }))),
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'New deductions'), h('span', { class: 'tag' }, 'Schedule 1-A')), h('div', { class: 'grid' },
       field('Car loan interest', 'schedule1A.carLoanInterest'))));
 
@@ -445,7 +471,7 @@
 
   const renderSections = () => {
     const main = $('#main');
-    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionDed(), sectionPay(), sectionReview(), sectionData());
+    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionForeign(), sectionDed(), sectionPay(), sectionReview(), sectionData());
     $('#yearLabel').textContent = 'tax year ' + state.taxYear;
     renderRail();
     showActive();
@@ -518,7 +544,35 @@
     ];
     const details = [];
     const det = (title, body) => details.push(h('details', {}, h('summary', {}, title), body));
-    if (c.scheduleB.required) det('Schedule B', kv({ 'Line 2 interest': c.scheduleB.line2, 'Line 6 dividends': c.scheduleB.line6 }));
+    if (c.scheduleB.required) det('Schedule B', h('div', {},
+      kv({ 'Line 2 interest': c.scheduleB.line2, 'Line 6 dividends': c.scheduleB.line6, 'Line 7a foreign account or signature authority': c.scheduleB.line7a, 'Line 7a required to file FinCEN Form 114': c.scheduleB.line7aFbarRequired }),
+      c.scheduleB.line7b.length ? h('p', { class: 'mono', style: 'margin:6px 0 0' }, 'Line 7b country: ' + c.scheduleB.line7b.join(', ')) : null));
+    if (c.fbar.hasAccounts) {
+      const typeLabel = { bank: 'Bank', securities: 'Securities', other: 'Other' };
+      const partTitle = { II: 'Part II, owned separately', III: 'Part III, owned jointly', IV: 'Part IV, signature authority only' };
+      for (const filing of c.fbar.filings) {
+        if (!filing.accounts.length) continue;
+        const body = [kv({ 'Aggregate maximum value, USD': filing.aggregateMaxUsd, 'Filing required': filing.required })];
+        if (filing.required) {
+          body.push(h('p', { style: 'margin:6px 0' }, 'E-file at bsaefiling.fincen.treas.gov by ' + c.fbar.dueDate + ' (automatic extension to ' + c.fbar.extendedDueDate + '). Copy each account into the online form:'));
+          for (const part of ['II', 'III', 'IV']) {
+            const accts = filing.accounts.filter((a) => a.part === part);
+            if (!accts.length) continue;
+            body.push(h('div', { class: 'tablewrap' }, h('table', { class: 'lines' },
+              h('tr', { class: 'head' }, h('td', { colspan: '4' }, partTitle[part])),
+              accts.map((a) => [
+                h('tr', { class: 'total' }, h('td', { class: 'ln' }, ''), h('td', {}, a.institution || 'Account ' + (a.index + 1)), h('td', { class: 'amt' }, ''), h('td', { class: 'note' }, '')),
+                h('tr', {}, h('td', { class: 'ln' }, '15'), h('td', {}, 'Maximum value, USD'), h('td', { class: 'amt' }, a.maxValueUnknown ? 'unknown' : money(a.maxValueUsd)), h('td', { class: 'note' }, a.maxValueUnknown ? 'check box 15a' : a.currency !== 'USD' ? money(a.maxValue) + ' ' + a.currency + ' at ' + a.treasuryRate + ' per USD' : '')),
+                h('tr', {}, h('td', { class: 'ln' }, '16'), h('td', {}, 'Type'), h('td', { class: 'amt' }, ''), h('td', { class: 'note' }, typeLabel[a.accountType] + (a.accountType === 'other' && a.otherTypeDescription ? ' (' + a.otherTypeDescription + ')' : ''))),
+                h('tr', {}, h('td', { class: 'ln' }, '18'), h('td', {}, 'Account number'), h('td', { class: 'amt' }, ''), h('td', { class: 'note' }, a.accountNumber)),
+                h('tr', {}, h('td', { class: 'ln' }, '19-23'), h('td', {}, 'Address'), h('td', { class: 'amt' }, ''), h('td', { class: 'note' }, [a.street, a.city, a.stateProvince, a.postalCode, a.country].filter(Boolean).join(', '))),
+                part === 'III' ? h('tr', {}, h('td', { class: 'ln' }, '24-26'), h('td', {}, 'Joint owners'), h('td', { class: 'amt' }, String(a.jointOwnerCount)), h('td', { class: 'note' }, a.principalJointOwner + (a.principalJointOwnerTin ? ' TIN ' + a.principalJointOwnerTin : ''))) : null,
+              ]))));
+          }
+        }
+        det('FinCEN Form 114 (FBAR)' + (c.fbar.filings.length > 1 ? ', ' + filing.filer : ''), h('div', {}, body));
+      }
+    }
     if (c.scheduleD.required) {
       det('Schedule D', kv({ 'Line 7 net short-term': c.scheduleD.line7, 'Line 13 capital gain distributions': c.scheduleD.line13, 'Line 15 net long-term': c.scheduleD.line15, 'Line 16 combined': c.scheduleD.line16, 'Line 21 allowed loss': c.scheduleD.line21, 'Carryover to next year, short': c.scheduleD.nextYearCarryover.shortTerm, 'Carryover to next year, long': c.scheduleD.nextYearCarryover.longTerm }));
       for (const part of c.scheduleD.f8949) {
@@ -542,6 +596,7 @@
     review.replaceChildren(
       h('div', { class: 'card' }, h('div', { class: 'tablewrap' }, h('table', { class: 'lines' }, rows))),
       h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Attach to the return')), h('div', {}, c.attachments.map((a) => h('span', { class: 'pill' }, a)))),
+      c.separateFilings.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'File separately, not with the return')), h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, c.separateFilings.map((s) => h('div', {}, s)))) : null,
       c.warnings.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Check before filing')), h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, c.warnings.map((w) => h('div', { class: 'warn' }, w)))) : null,
       c.unverifiedParameters.length ? h('div', { class: 'warn' }, 'Tax year ' + c.taxYear + ' figures not yet confirmed against the IRS revenue procedure: ' + c.unverifiedParameters.join(', ')) : null,
       details.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Schedules and worksheets')), details) : null);

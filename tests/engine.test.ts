@@ -66,3 +66,25 @@ describe('year switch', () => {
     expect(c.schedule8812.line12).toBe(4_400 - c.schedule8812.line9);
   });
 });
+
+describe('deduction method', () => {
+  const ret = sample();
+  it('takes the larger deduction by default', () => {
+    const c = computeReturn(ret);
+    expect(c.f1040.line12IsItemized).toBe(false);
+    expect(c.f1040.line12).toBe(c.standardDeduction);
+  });
+  it('can be forced to itemize, with a warning when that is smaller', () => {
+    const c = computeReturn({ ...ret, deductionMethod: 'itemized' });
+    expect(c.f1040.line12IsItemized).toBe(true);
+    expect(c.f1040.line12).toBe(c.scheduleA.line17);
+    expect(c.attachments).toContain('Schedule A');
+    expect(c.warnings.some((w) => w.startsWith('Itemized deductions chosen'))).toBe(true);
+  });
+  it('honours the older forceStandardDeduction flag', () => {
+    const big = { ...ret, itemized: { ...ret.itemized, charityCash: 60_000 } };
+    expect(computeReturn(big).f1040.line12IsItemized).toBe(true);
+    expect(computeReturn({ ...big, forceStandardDeduction: true }).f1040.line12IsItemized).toBe(false);
+    expect(computeReturn({ ...big, deductionMethod: 'standard' }).f1040.line12IsItemized).toBe(false);
+  });
+});

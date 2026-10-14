@@ -66,6 +66,7 @@ const printSummary = (c: ComputedReturn): void => {
   out.push('');
   out.push(`Effective rate ${(f.effectiveRate * 100).toFixed(1)}% of AGI, marginal ordinary rate ${(f.marginalRate * 100).toFixed(0)}%`);
   out.push(`Attach: ${c.attachments.join(', ')}`);
+  for (const s of c.separateFilings) out.push(`File separately: ${s}`);
   if (c.scheduleD.required) {
     const co = c.scheduleD.nextYearCarryover;
     if (co.shortTerm || co.longTerm) out.push(`Capital loss carryover to next year: short ${fmt(co.shortTerm)}, long ${fmt(co.longTerm)}`);
@@ -110,6 +111,47 @@ const printAll = (c: ComputedReturn): void => {
   section('Form 8960', c.f8960);
   section('Form 8995', c.f8995);
   if (c.qdcg) section('Qualified Dividends and Capital Gain Tax Worksheet', c.qdcg);
+  if (c.scheduleB.line7a) {
+    console.log('\n== Schedule B Part III ==');
+    console.log(row('7a  Foreign account or signature authority', 'Yes'));
+    console.log(row('7a  Required to file FinCEN Form 114', c.scheduleB.line7aFbarRequired ? 'Yes' : 'No'));
+    console.log(row('7b  Country', c.scheduleB.line7b.join(', ')));
+  }
+  printFbar(c);
+};
+
+const printFbar = (c: ComputedReturn): void => {
+  const fb = c.fbar;
+  if (!fb.hasAccounts) return;
+  const typeLabel = { bank: 'Bank', securities: 'Securities', other: 'Other' };
+  for (const filing of fb.filings) {
+    if (!filing.accounts.length) continue;
+    console.log(`\n== FinCEN Form 114 (FBAR), filer: ${filing.filer} ==`);
+    console.log(row('Aggregate maximum value (USD)', filing.aggregateMaxUsd, filing.anyValueUnknown ? 'plus accounts of unknown value' : ''));
+    console.log(row('Filing required', filing.required ? 'Yes' : `No (aggregate at or under ${fmt(10_000)})`));
+    if (!filing.required) continue;
+    console.log(row('Where', 'BSA E-Filing System, bsaefiling.fincen.treas.gov'));
+    console.log(row('Due', `${fb.dueDate}, automatic extension to ${fb.extendedDueDate}`));
+    for (const part of ['II', 'III', 'IV'] as const) {
+      const accts = filing.accounts.filter((a) => a.part === part);
+      if (!accts.length) continue;
+      const title = { II: 'Part II, owned separately', III: 'Part III, owned jointly', IV: 'Part IV, signature authority only' }[part];
+      console.log(`\n  ${title}`);
+      for (const a of accts) {
+        console.log(`  Account ${a.index + 1}: ${a.institution || '(institution)'}`);
+        console.log(row('    15  Maximum value (USD)', a.maxValueUnknown ? 'unknown (check 15a)' : a.maxValueUsd, a.currency !== 'USD' ? `${fmt(a.maxValue)} ${a.currency} at ${a.treasuryRate} per USD` : ''));
+        console.log(row('    16  Type of account', typeLabel[a.accountType] + (a.accountType === 'other' && a.otherTypeDescription ? ` (${a.otherTypeDescription})` : '')));
+        console.log(row('    17  Financial institution', a.institution));
+        console.log(row('    18  Account number', a.accountNumber));
+        console.log(row('    19-23 Address', [a.street, a.city, a.stateProvince, a.postalCode, a.country].filter(Boolean).join(', ')));
+        if (part === 'III') {
+          console.log(row('    24  Number of joint owners', a.jointOwnerCount));
+          console.log(row('    25-26 Principal joint owner', a.principalJointOwner + (a.principalJointOwnerTin ? ` TIN ${a.principalJointOwnerTin}` : '')));
+        }
+      }
+    }
+  }
+  if (fb.jointFilingAllowed) console.log('\n  Spouses may file one FBAR under the taxpayer with Form 114a signed by the spouse.');
 };
 
 const importDocs = async (args: string[]): Promise<void> => {

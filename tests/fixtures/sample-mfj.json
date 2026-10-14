@@ -17,5 +17,9 @@
     { "description": "ABC 10 sh", "dateAcquired": "2025-02-01", "dateSold": "2025-06-01", "proceeds": 5000, "basis": 4000, "term": "short", "basisReported": true },
     { "description": "XYZ 5 sh", "dateAcquired": "2022-01-01", "dateSold": "2025-03-01", "proceeds": 3000, "basis": 5000, "adjustmentCode": "W", "adjustment": 500, "term": "long", "basisReported": true }
   ],
-  "itemized": { "realEstateTax": 6000, "mortgageInterest": 9000, "charityCash": 2000 }
+  "itemized": { "realEstateTax": 6000, "mortgageInterest": 9000, "charityCash": 2000 },
+  "deductionMethod": "auto",
+  "foreignAccounts": [
+    { "institution": "Hana Bank", "accountNumber": "123-456-789", "accountType": "bank", "street": "35 Eulji-ro", "city": "Seoul", "postalCode": "04523", "country": "Korea, South", "owner": "taxpayer", "currency": "KRW", "maxValue": 4000000, "treasuryRate": 1470 }
+  ]
 }

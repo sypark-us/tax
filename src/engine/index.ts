@@ -8,6 +8,7 @@ import { scheduleA, type ScheduleA } from './schedA';
 import { schedule1A, type Schedule1A } from './sched1A';
 import { form8959, form8960, netScheduleC, scheduleSE, type Form8959, type Form8960, type ScheduleSE } from './otherTaxes';
 import { form8995, schedule3, schedule8812, type Form8995, type Schedule3, type Schedule8812 } from './credits';
+import { fbar as computeFbar, type Fbar } from './fbar';
 
 export interface ScheduleB {
   required: boolean;
@@ -16,6 +17,11 @@ export interface ScheduleB {
   line4: number;
   dividends: Array<{ payer: string; amount: number }>;
   line6: number;
+  /** Part III is required whenever there is a foreign account, whatever the income. */
+  line7a: boolean;
+  line7aFbarRequired: boolean;
+  /** Line 7b: countries where the accounts are held. */
+  line7b: string[];
 }
 
 export interface Schedule1 {
@@ -71,9 +77,12 @@ export interface ComputedReturn {
   f8959: Form8959;
   f8960: Form8960;
   f8995: Form8995;
+  fbar: Fbar;
   qdcg: QdcgWorksheet | null;
   standardDeduction: number;
   attachments: string[];
+  /** Reports filed somewhere other than with the 1040, such as the FBAR with FinCEN. */
+  separateFilings: string[];
   warnings: string[];
   unverifiedParameters: string[];
 }
@@ -104,9 +113,13 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   const dividends = ret.div1099s.map((d) => ({ payer: d.payer, amount: r(d.box1a) }));
   const line3b = sum(dividends.map((d) => d.amount));
   const line3a = sum(ret.div1099s.map((d) => r(d.box1b)));
+  const fbarReport = computeFbar(ret);
   const scheduleB: ScheduleB = {
-    required: line2b > 1500 || line3b > 1500,
+    required: line2b > 1500 || line3b > 1500 || fbarReport.hasAccounts,
     interest, line2: line2b, line4: line2b, dividends, line6: line3b,
+    line7a: fbarReport.hasAccounts,
+    line7aFbarRequired: fbarReport.required,
+    line7b: fbarReport.countries,
   };
 
   const capGainDist = sum(ret.div1099s.map((d) => r(d.box2a)));
@@ -137,7 +150,10 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   const standardDeduction = standardDeductionFor(ret, p);
   const schedA = scheduleA(ret, agi, fs, p);
   let itemized = schedA.line17;
-  const useItemized = !ret.forceStandardDeduction && itemized > standardDeduction;
+  const method = ret.deductionMethod === 'auto' && ret.forceStandardDeduction ? 'standard' : ret.deductionMethod;
+  const useItemized = method === 'itemized' ? true : method === 'standard' ? false : itemized > standardDeduction;
+  if (method === 'standard' && itemized > standardDeduction) warnings.push(`Standard deduction chosen; itemizing would deduct ${itemized - standardDeduction} more.`);
+  if (method === 'itemized' && standardDeduction > itemized) warnings.push(`Itemized deductions chosen; the standard deduction would be ${standardDeduction - itemized} more.`);
   const nonItemizerCharity = useItemized
     ? 0
     : Math.min(r(ret.itemized.charityCash), p.charity.nonItemizerCash[ps]);
@@ -243,6 +259,19 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   if (f8960.required) attachments.push('Form 8960');
   if (f8995.required) attachments.push('Form 8995');
   if (schedule1.line13 > 0) attachments.push('Form 8889');
+  if (fbarReport.form8938.likely) attachments.push('Form 8938');
+
+  const separateFilings: string[] = [];
+  for (const filing of fbarReport.filings) {
+    if (!filing.required) continue;
+    const who = fbarReport.filings.length > 1 ? ` (${filing.filer})` : '';
+    separateFilings.push(`FinCEN Form 114 FBAR${who}: e-file with FinCEN by ${fbarReport.dueDate}, automatic extension to ${fbarReport.extendedDueDate}`);
+  }
+  if (fbarReport.jointFilingAllowed) separateFilings.push('Spouses may submit one FBAR: file under the taxpayer, report the joint accounts in Part III, and keep a signed Form 114a');
+  if (fbarReport.filings.some((f) => f.anyValueUnknown)) warnings.push('A foreign account has an unknown maximum value: FinCEN requires filing the FBAR and checking box 15a for that account.');
+  const t8938 = fbarReport.form8938.threshold;
+  if (fbarReport.form8938.likely) warnings.push(`Foreign accounts exceeded $${t8938.anyTime.toLocaleString('en-US')} during the year: Form 8938 must be attached to the return and is not implemented.`);
+  else if (fbarReport.form8938.possible) warnings.push(`Form 8938 is required if foreign assets were over $${t8938.lastDay.toLocaleString('en-US')} on December 31; check the year-end balances. Form 8938 is not implemented.`);
 
   if (ret.adjustments.hsaDeduction > 0) warnings.push('HSA deduction is taken as entered; Form 8889 limit checks are not yet implemented.');
   if (schedA.line8a > 0 && useItemized) warnings.push('Mortgage interest is taken as entered; the $750,000 acquisition-debt limit is not checked.');
@@ -268,9 +297,10 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
     schedule1, schedule2, schedule3: sched3,
     scheduleA: schedA, scheduleB, scheduleD: schedD, scheduleSE: se,
     schedule1A: s1a, schedule8812: s8812,
-    f8959, f8960, f8995, qdcg,
+    f8959, f8960, f8995, fbar: fbarReport, qdcg,
     standardDeduction,
     attachments,
+    separateFilings,
     warnings,
     unverifiedParameters: p.unverified,
   };

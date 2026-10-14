@@ -45,6 +45,7 @@ Forms produced:
 - Form 6251 (AMT) at least as a check that AMT doesn't apply, full computation if it does
 - Qualified Dividends and Capital Gain Tax Worksheet, Schedule D Tax Worksheet
 - Form 1040-V and a summary sheet
+- FinCEN Form 114 (FBAR) worksheet: not an IRS form and not mailable, so the engine decides who must file, converts at the Treasury year-end rate, lays accounts out by Part for the BSA E-Filing System, and fills Schedule B Part III. Form 8938 is only threshold-checked.
 
 ### Later
 - Schedule C / SE, Schedule E, K-1s, foreign tax credit (1116), education credits, EV and energy credits, 1095-A/8962
