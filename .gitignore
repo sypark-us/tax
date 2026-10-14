@@ -1,0 +1,12 @@
+# Deft transient evidence
+.local/
+
+# toolchain
+node_modules/
+dist/
+coverage/
+
+# NEVER commit personal tax data
+data/
+*.taxreturn.json
+*.filled.pdf
