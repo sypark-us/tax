@@ -1,0 +1,553 @@
+<title>Federal Return Workbench</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a fixed ledger strip on top with the live result, a section rail on the left,
+     one document card per W-2 or 1099 on the right. Numbers always in the mono face. */
+  :root {
+    --bg: #f4f6f4;
+    --surface: #ffffff;
+    --surface-2: #e9eeeb;
+    --line: #cdd6d1;
+    --fg: #15201b;
+    --muted: #5b6a63;
+    --accent: #1e6b57;
+    --accent-ink: #ffffff;
+    --refund: #1e6b57;
+    --owe: #a8471c;
+    --warn-bg: #fbf1dc;
+    --warn-fg: #6b4a05;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-num: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121815; --surface: #1a221e; --surface-2: #222c27; --line: #35423c;
+      --fg: #e6ece8; --muted: #9aa8a1; --accent: #5cc3a3; --accent-ink: #0d1612;
+      --refund: #5cc3a3; --owe: #f0956a; --warn-bg: #3a2e12; --warn-fg: #f3d58a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121815; --surface: #1a221e; --surface-2: #222c27; --line: #35423c;
+    --fg: #e6ece8; --muted: #9aa8a1; --accent: #5cc3a3; --accent-ink: #0d1612;
+    --refund: #5cc3a3; --owe: #f0956a; --warn-bg: #3a2e12; --warn-fg: #f3d58a;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font-body); margin: 0; }
+  button, input, select { font: inherit; color: inherit; }
+  .num, input[type="number"], .mono { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+  .strip {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+    background: var(--surface); border-bottom: 1px solid var(--line);
+    padding-block: 10px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .strip-inner { max-width: 1120px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 24px; }
+  .strip h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+  .strip .year { color: var(--muted); font-weight: 400; }
+  .result { margin-left: auto; display: flex; align-items: baseline; gap: 10px; }
+  .result .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .result .amount { font-family: var(--font-num); font-size: 26px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .result.refund .amount { color: var(--refund); }
+  .result.owe .amount { color: var(--owe); }
+  .kpis { display: flex; gap: 18px; color: var(--muted); font-size: 13px; flex-wrap: wrap; }
+  .kpis b { color: var(--fg); font-weight: 500; }
+
+  .page {
+    max-width: 1120px; margin: 0 auto;
+    padding-block: 18px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px;
+  }
+  @media (max-width: 760px) { .page { grid-template-columns: 1fr; } .rail { position: static; } }
+  .rail { position: sticky; top: 72px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
+  .rail button {
+    text-align: left; background: none; border: 0; border-left: 3px solid transparent;
+    padding: 7px 10px; border-radius: 0 6px 6px 0; cursor: pointer; color: var(--muted);
+  }
+  .rail button:hover { background: var(--surface-2); }
+  .rail button.active { color: var(--fg); border-left-color: var(--accent); background: var(--surface-2); font-weight: 500; }
+  .rail button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .rail .count { float: right; font-family: var(--font-num); font-size: 12px; color: var(--muted); }
+
+  main { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+  section[hidden] { display: none; }
+  h2 { font-size: 19px; font-weight: 600; margin: 4px 0 2px; text-wrap: balance; }
+  .lede { color: var(--muted); margin: 0 0 8px; max-width: 65ch; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .card-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+  .card-head .title { font-weight: 600; }
+  .card-head .tag { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .card-head .remove { margin-left: auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 14px; }
+  .grid.wide { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+  label.f { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  label.f span { font-size: 12px; color: var(--muted); letter-spacing: 0.01em; }
+  label.f span .box { font-family: var(--font-num); color: var(--fg); margin-right: 4px; }
+  input[type="text"], input[type="number"], input[type="date"], select {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; min-width: 0; width: 100%;
+  }
+  input[type="number"] { text-align: right; }
+  label.c { display: flex; align-items: center; gap: 8px; padding-top: 18px; }
+  .btn { background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.small { padding: 3px 9px; font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+  table.lines { width: 100%; border-collapse: collapse; }
+  table.lines td { padding: 5px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.lines td.ln { color: var(--muted); font-family: var(--font-num); width: 3.2em; }
+  table.lines td.amt { text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.lines td.note { color: var(--muted); font-size: 13px; }
+  table.lines tr.total td { font-weight: 600; border-bottom: 2px solid var(--fg); }
+  table.lines tr.head td { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 0; padding-top: 12px; }
+  .tablewrap { overflow-x: auto; }
+  details { border-top: 1px solid var(--line); padding: 8px 0; }
+  details summary { cursor: pointer; font-weight: 500; }
+  .warn { background: var(--warn-bg); color: var(--warn-fg); border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+  .pill { display: inline-block; background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 13px; margin: 2px 4px 2px 0; }
+  textarea { width: 100%; min-height: 160px; font: 12px/1.4 var(--font-num); background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 5px; padding: 8px; }
+  .error { color: var(--owe); }
+  @media (prefers-reduced-motion: no-preference) { .result .amount { transition: color 0.2s; } }
+</style>
+
+<header class="strip">
+  <div class="strip-inner">
+    <h1>Federal Return Workbench <span class="year" id="yearLabel">tax year 2025</span></h1>
+    <div class="kpis" id="kpis"></div>
+    <div class="result" id="result"><span class="label">Refund</span><span class="amount">$0</span></div>
+  </div>
+</header>
+
+<div class="page">
+  <nav class="rail" id="rail" aria-label="Sections"></nav>
+  <main id="main"></main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!--ENGINE-->
+<script>
+(function () {
+  'use strict';
+  const E = window.TaxEngine;
+  const $ = (sel, el) => (el || document).querySelector(sel);
+  const h = (tag, attrs, ...kids) => {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'class') el.className = v;
+      else if (k === 'html') el.innerHTML = v;
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+      else if (v !== false && v !== null && v !== undefined) el.setAttribute(k, v === true ? '' : v);
+    }
+    for (const kid of kids.flat()) if (kid !== null && kid !== undefined) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+    return el;
+  };
+  const money = (n) => (n < 0 ? '(' + Math.abs(n).toLocaleString('en-US') + ')' : n.toLocaleString('en-US'));
+  const dollars = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US');
+
+  // ---------- state ----------
+  const EXAMPLE = {
+    taxYear: 2025, filingStatus: 'mfj',
+    taxpayer: { firstName: 'Alex', lastName: 'Example', age65OrOlder: false, blind: false },
+    spouse: { firstName: 'Sam', lastName: 'Example', age65OrOlder: false, blind: false },
+    dependents: [{ name: 'Kid One', relationship: 'child', age: 8, qualifyingChild: true, hasValidSsn: true }, { name: 'Kid Two', relationship: 'child', age: 15, qualifyingChild: true, hasValidSsn: true }],
+    w2s: [
+      { employer: 'Acme Corp', owner: 'taxpayer', box1: 120000, box2: 18000, box3: 125000, box4: 7750, box5: 125000, box6: 1812.5, box12: [], qualifiedTips: 0, qualifiedOvertime: 0, state: 'CA', box16: 125000, box17: 7000 },
+      { employer: 'Globex', owner: 'spouse', box1: 60000, box2: 6000, box3: 62000, box4: 3844, box5: 62000, box6: 899, box12: [], qualifiedTips: 0, qualifiedOvertime: 0, state: 'CA', box16: 62000, box17: 2500 },
+    ],
+    int1099s: [{ payer: 'Community Bank', box1: 1200.49, box3: 0, box4: 0, box8: 0 }],
+    div1099s: [{ payer: 'Brokerage', box1a: 4000, box1b: 3000, box2a: 500, box4: 0, box5: 0, box7: 0 }],
+    lots: [
+      { description: 'ABC 10 sh', dateAcquired: '2025-02-01', dateSold: '2025-06-01', proceeds: 5000, basis: 4000, adjustmentCode: '', adjustment: 0, term: 'short', basisReported: true },
+      { description: 'XYZ 5 sh', dateAcquired: '2022-01-01', dateSold: '2025-03-01', proceeds: 3000, basis: 5000, adjustmentCode: 'W', adjustment: 500, term: 'long', basisReported: true },
+    ],
+    capitalLossCarryover: { shortTerm: 0, longTerm: 0 },
+    scheduleC: [],
+    adjustments: { hsaDeduction: 0, iraDeduction: 0, studentLoanInterest: 0, other: 0 },
+    itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 6000, personalPropertyTax: 0, mortgageInterest: 9000, charityCash: 2000, charityNoncash: 0, other: 0 },
+    forceStandardDeduction: false,
+    schedule1A: { carLoanInterest: 0 },
+    payments: { estimated: 0, extension: 0, otherWithholding: 0 },
+  };
+  const blank = () => ({
+    ...JSON.parse(JSON.stringify(EXAMPLE)),
+    taxpayer: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
+    spouse: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
+    dependents: [], w2s: [], int1099s: [], div1099s: [], lots: [], scheduleC: [],
+    itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 0, personalPropertyTax: 0, mortgageInterest: 0, charityCash: 0, charityNoncash: 0, other: 0 },
+  });
+  const NEW = {
+    w2: () => ({ employer: '', owner: 'taxpayer', box1: 0, box2: 0, box3: 0, box4: 0, box5: 0, box6: 0, box12: [], qualifiedTips: 0, qualifiedOvertime: 0, state: '', box16: 0, box17: 0 }),
+    int: () => ({ payer: '', box1: 0, box3: 0, box4: 0, box8: 0 }),
+    div: () => ({ payer: '', box1a: 0, box1b: 0, box2a: 0, box4: 0, box5: 0, box7: 0 }),
+    lot: () => ({ description: '', dateAcquired: '', dateSold: '', proceeds: 0, basis: 0, adjustmentCode: '', adjustment: 0, term: 'long', basisReported: true }),
+    c: () => ({ name: '', owner: 'taxpayer', grossReceipts: 0, returnsAndAllowances: 0, costOfGoodsSold: 0, expenses: 0 }),
+    dep: () => ({ name: '', relationship: 'child', age: 0, qualifyingChild: true, hasValidSsn: true }),
+  };
+
+  let state = null;
+  let isExample = false;
+  try {
+    const saved = localStorage.getItem('taxReturn');
+    if (saved) state = JSON.parse(saved);
+  } catch (e) { state = null; }
+  if (!state) { state = JSON.parse(JSON.stringify(EXAMPLE)); isExample = true; }
+
+  const persist = () => { try { localStorage.setItem('taxReturn', JSON.stringify(state)); } catch (e) { /* storage unavailable */ } };
+  const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+  const setPath = (obj, path, value) => {
+    const keys = path.split('.');
+    let o = obj;
+    for (const k of keys.slice(0, -1)) o = o[k];
+    o[keys[keys.length - 1]] = value;
+  };
+
+  // ---------- fields ----------
+  const field = (label, path, opts) => {
+    opts = opts || {};
+    const value = getPath(state, path);
+    const id = 'f_' + path.replace(/\./g, '_');
+    let input;
+    if (opts.type === 'select') {
+      input = h('select', { id, 'data-path': path, 'data-kind': 'text' }, opts.options.map(([v, t]) => h('option', { value: v, selected: v === value }, t)));
+    } else if (opts.type === 'checkbox') {
+      input = h('input', { id, type: 'checkbox', 'data-path': path, 'data-kind': 'bool', checked: !!value });
+      return h('label', { class: 'c' }, input, h('span', {}, label));
+    } else if (opts.type === 'date') {
+      input = h('input', { id, type: 'date', 'data-path': path, 'data-kind': 'text', value: value || '' });
+    } else if (opts.type === 'text') {
+      input = h('input', { id, type: 'text', 'data-path': path, 'data-kind': 'text', value: value || '', placeholder: opts.placeholder || '' });
+    } else {
+      input = h('input', { id, type: 'number', step: 'any', 'data-path': path, 'data-kind': 'num', value: value === 0 || value ? value : '', placeholder: '0' });
+    }
+    const cap = opts.box ? [h('span', { class: 'box' }, opts.box), label] : [label];
+    return h('label', { class: 'f' }, h('span', {}, ...cap), input);
+  };
+  document.addEventListener('input', (ev) => {
+    const el = ev.target;
+    const path = el.getAttribute('data-path');
+    if (!path) return;
+    const kind = el.getAttribute('data-kind');
+    let v;
+    if (kind === 'num') v = el.value === '' ? 0 : Number(el.value);
+    else if (kind === 'bool') v = el.checked;
+    else v = el.value;
+    if (kind === 'num' && Number.isNaN(v)) return;
+    setPath(state, path, v);
+    isExample = false;
+    persist();
+    if (path === 'filingStatus' || path === 'taxYear') { if (path === 'taxYear') state.taxYear = Number(v); renderSections(); }
+    recompute();
+  });
+
+  const docCard = (title, tag, listPath, i, fields, onRemove) => h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('span', { class: 'title' }, title), h('span', { class: 'tag' }, tag),
+      h('button', { class: 'btn small remove', type: 'button', onclick: () => { getPath(state, listPath).splice(i, 1); isExample = false; persist(); renderSections(); recompute(); } }, 'Remove')),
+    h('div', { class: 'grid' }, fields));
+  const addButton = (text, listPath, make) => h('button', { class: 'btn primary', type: 'button', onclick: () => { getPath(state, listPath).push(make()); isExample = false; persist(); renderSections(); recompute(); } }, text);
+  const ownerOpts = () => (['mfj', 'qss'].includes(state.filingStatus) ? [['taxpayer', 'Taxpayer'], ['spouse', 'Spouse']] : [['taxpayer', 'Taxpayer']]);
+
+  // ---------- sections ----------
+  const SECTIONS = [
+    { id: 'about', title: 'About you', count: () => '' },
+    { id: 'import', title: 'Import PDFs', count: () => '' },
+    { id: 'w2', title: 'W-2 wages', count: () => state.w2s.length },
+    { id: 'int', title: '1099-INT interest', count: () => state.int1099s.length },
+    { id: 'div', title: '1099-DIV dividends', count: () => state.div1099s.length },
+    { id: 'stocks', title: 'Stock sales', count: () => state.lots.length },
+    { id: 'biz', title: 'Business', count: () => state.scheduleC.length },
+    { id: 'ded', title: 'Deductions', count: () => '' },
+    { id: 'pay', title: 'Payments', count: () => '' },
+    { id: 'review', title: 'Review return', count: () => '' },
+    { id: 'data', title: 'Save / load', count: () => '' },
+  ];
+  let active = 'about';
+  try { const a = localStorage.getItem('taxActive'); if (a && SECTIONS.some((s) => s.id === a)) active = a; } catch (e) { /* ignore */ }
+
+  const renderRail = () => {
+    const rail = $('#rail');
+    rail.replaceChildren(...SECTIONS.map((s) => h('button', { type: 'button', class: s.id === active ? 'active' : '', onclick: () => { active = s.id; try { localStorage.setItem('taxActive', active); } catch (e) { /* ignore */ } renderRail(); showActive(); } }, s.title, h('span', { class: 'count' }, s.count()))));
+  };
+  const showActive = () => { for (const sec of document.querySelectorAll('main > section')) sec.hidden = sec.id !== 'sec_' + active; window.scrollTo({ top: 0 }); };
+
+  const sectionAbout = () => {
+    const married = ['mfj', 'mfs', 'qss'].includes(state.filingStatus);
+    if (married && !state.spouse) state.spouse = { firstName: '', lastName: '', age65OrOlder: false, blind: false };
+    return h('section', { id: 'sec_about' },
+      h('h2', {}, 'About you'),
+      h('p', { class: 'lede' }, 'Filing status and household. Dependents under 17 at year end count for the child tax credit.'),
+      h('div', { class: 'card' }, h('div', { class: 'grid' },
+        field('Tax year', 'taxYear', { type: 'select', options: [['2025', '2025 (file in 2026)'], ['2026', '2026 (file in 2027)']] }),
+        field('Filing status', 'filingStatus', { type: 'select', options: [['single', 'Single'], ['mfj', 'Married filing jointly'], ['mfs', 'Married filing separately'], ['hoh', 'Head of household'], ['qss', 'Qualifying surviving spouse']] }))),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Taxpayer')), h('div', { class: 'grid' },
+        field('First name', 'taxpayer.firstName', { type: 'text' }), field('Last name', 'taxpayer.lastName', { type: 'text' }),
+        field('65 or older', 'taxpayer.age65OrOlder', { type: 'checkbox' }), field('Blind', 'taxpayer.blind', { type: 'checkbox' }))),
+      married ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Spouse')), h('div', { class: 'grid' },
+        field('First name', 'spouse.firstName', { type: 'text' }), field('Last name', 'spouse.lastName', { type: 'text' }),
+        field('65 or older', 'spouse.age65OrOlder', { type: 'checkbox' }), field('Blind', 'spouse.blind', { type: 'checkbox' }))) : null,
+      ...state.dependents.map((d, i) => docCard(d.name || 'Dependent ' + (i + 1), 'dependent', 'dependents', i, [
+        field('Name', 'dependents.' + i + '.name', { type: 'text' }), field('Relationship', 'dependents.' + i + '.relationship', { type: 'text' }),
+        field('Age at year end', 'dependents.' + i + '.age'), field('Qualifying child', 'dependents.' + i + '.qualifyingChild', { type: 'checkbox' }),
+        field('Has valid SSN', 'dependents.' + i + '.hasValidSsn', { type: 'checkbox' })])),
+      h('div', { class: 'row' }, addButton('Add dependent', 'dependents', NEW.dep)));
+  };
+
+  // ---------- PDF import ----------
+  const importLog = [];
+  const readPdfItems = async (file) => {
+    const lib = window.pdfjsLib;
+    if (!lib) throw new Error('The PDF reader library did not load.');
+    lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const data = new Uint8Array(await file.arrayBuffer());
+    const doc = await lib.getDocument({ data }).promise;
+    const items = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      for (const it of tc.items) if (it.str && it.str.trim()) items.push({ str: it.str, x: it.transform[4], y: it.transform[5], page: p });
+    }
+    return items;
+  };
+  const importFiles = async (files, owner) => {
+    for (const file of files) {
+      try {
+        const doc = E.parseTaxDocument(await readPdfItems(file));
+        if (doc.message) { importLog.unshift({ file: file.name, ok: false, text: doc.message }); continue; }
+        let text;
+        if (doc.type === 'w2') {
+          state.w2s.push({ employer: doc.employer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box5: doc.box5, box6: doc.box6, box12: doc.box12, qualifiedTips: 0, qualifiedOvertime: 0, state: doc.state, box16: doc.box16, box17: doc.box17 });
+          text = 'W-2 from ' + (doc.employer || 'unknown employer') + ': wages ' + money(doc.box1) + ', withheld ' + money(doc.box2) + ', Medicare wages ' + money(doc.box5) + ', state tax ' + money(doc.box17);
+        } else if (doc.type === '1099-int') {
+          state.int1099s.push({ payer: doc.payer, box1: doc.box1, box3: doc.box3, box4: doc.box4, box8: doc.box8 });
+          text = '1099-INT from ' + doc.payer + ': interest ' + money(doc.box1);
+        } else {
+          state.div1099s.push({ payer: doc.payer, box1a: doc.box1a, box1b: doc.box1b, box2a: doc.box2a, box4: doc.box4, box5: doc.box5, box7: doc.box7 });
+          text = '1099-DIV from ' + doc.payer + ': ordinary ' + money(doc.box1a) + ', qualified ' + money(doc.box1b);
+        }
+        if (doc.missing.length) text += '. Could not find ' + doc.missing.join(', ') + ', entered as 0.';
+        importLog.unshift({ file: file.name, ok: true, text });
+        isExample = false;
+      } catch (err) {
+        importLog.unshift({ file: file.name, ok: false, text: 'Could not read: ' + (err.message || err) });
+      }
+    }
+    persist();
+    renderSections();
+    recompute();
+  };
+  const sectionImport = () => {
+    const ownerSel = h('select', { id: 'importOwner' }, ownerOpts().map(([v, t]) => h('option', { value: v }, t)));
+    const input = h('input', { id: 'importFiles', type: 'file', accept: 'application/pdf,.pdf', multiple: true, onchange: (ev) => { const files = [...ev.target.files]; ev.target.value = ''; importFiles(files, ownerSel.value); } });
+    return h('section', { id: 'sec_import' },
+      h('h2', {}, 'Import PDFs'),
+      h('p', { class: 'lede' }, 'Choose the W-2, 1099-INT and 1099-DIV files your employer and banks gave you. Each box is read from the PDF and a card is added to the matching section. Files stay in this browser.'),
+      h('div', { class: 'card' }, h('div', { class: 'grid wide' },
+        h('label', { class: 'f' }, h('span', {}, 'Whose W-2s are these'), ownerSel),
+        h('label', { class: 'f' }, h('span', {}, 'PDF files'), input))),
+      importLog.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Imported')),
+        h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, importLog.map((l) => h('div', { class: l.ok ? '' : 'warn' }, h('b', {}, l.file), ' ', l.text)))) : null);
+  };
+
+  const sectionW2 = () => h('section', { id: 'sec_w2' },
+    h('h2', {}, 'W-2 wages'),
+    h('p', { class: 'lede' }, 'Copy each box from the W-2, or add it from the PDF under Import PDFs. Box 5 drives the additional Medicare tax and box 17 feeds the state tax deduction.'),
+    ...state.w2s.map((w, i) => docCard(w.employer || 'Employer ' + (i + 1), 'W-2', 'w2s', i, [
+      field('Employer', 'w2s.' + i + '.employer', { type: 'text' }), field('Whose W-2', 'w2s.' + i + '.owner', { type: 'select', options: ownerOpts() }),
+      field('Wages', 'w2s.' + i + '.box1', { box: '1' }), field('Federal tax withheld', 'w2s.' + i + '.box2', { box: '2' }),
+      field('Social Security wages', 'w2s.' + i + '.box3', { box: '3' }), field('Social Security tax', 'w2s.' + i + '.box4', { box: '4' }),
+      field('Medicare wages', 'w2s.' + i + '.box5', { box: '5' }), field('Medicare tax', 'w2s.' + i + '.box6', { box: '6' }),
+      field('State', 'w2s.' + i + '.state', { type: 'text', placeholder: 'CA' }), field('State wages', 'w2s.' + i + '.box16', { box: '16' }), field('State income tax', 'w2s.' + i + '.box17', { box: '17' }),
+      field('Qualified tips', 'w2s.' + i + '.qualifiedTips', { box: '14' }), field('Qualified overtime', 'w2s.' + i + '.qualifiedOvertime', { box: '14' })])),
+    h('div', { class: 'row' }, addButton('Add W-2', 'w2s', NEW.w2)));
+
+  const sectionInt = () => h('section', { id: 'sec_int' },
+    h('h2', {}, '1099-INT interest'),
+    h('p', { class: 'lede' }, 'One card per payer. Schedule B is attached automatically when interest or dividends exceed $1,500.'),
+    ...state.int1099s.map((d, i) => docCard(d.payer || 'Payer ' + (i + 1), '1099-INT', 'int1099s', i, [
+      field('Payer', 'int1099s.' + i + '.payer', { type: 'text' }), field('Interest income', 'int1099s.' + i + '.box1', { box: '1' }),
+      field('US Treasury interest', 'int1099s.' + i + '.box3', { box: '3' }), field('Federal tax withheld', 'int1099s.' + i + '.box4', { box: '4' }),
+      field('Tax-exempt interest', 'int1099s.' + i + '.box8', { box: '8' })])),
+    h('div', { class: 'row' }, addButton('Add 1099-INT', 'int1099s', NEW.int)));
+
+  const sectionDiv = () => h('section', { id: 'sec_div' },
+    h('h2', {}, '1099-DIV dividends'),
+    h('p', { class: 'lede' }, 'Qualified dividends and capital gain distributions get the lower rates. Foreign tax paid becomes a credit on Schedule 3.'),
+    ...state.div1099s.map((d, i) => docCard(d.payer || 'Payer ' + (i + 1), '1099-DIV', 'div1099s', i, [
+      field('Payer', 'div1099s.' + i + '.payer', { type: 'text' }), field('Total ordinary dividends', 'div1099s.' + i + '.box1a', { box: '1a' }),
+      field('Qualified dividends', 'div1099s.' + i + '.box1b', { box: '1b' }), field('Capital gain distributions', 'div1099s.' + i + '.box2a', { box: '2a' }),
+      field('Federal tax withheld', 'div1099s.' + i + '.box4', { box: '4' }), field('Section 199A dividends', 'div1099s.' + i + '.box5', { box: '5' }),
+      field('Foreign tax paid', 'div1099s.' + i + '.box7', { box: '7' })])),
+    h('div', { class: 'row' }, addButton('Add 1099-DIV', 'div1099s', NEW.div)));
+
+  const sectionStocks = () => h('section', { id: 'sec_stocks' },
+    h('h2', {}, 'Stock sales'),
+    h('p', { class: 'lede' }, 'One row per lot from the 1099-B. Lots are sorted onto Form 8949 and Schedule D by holding period and whether the broker reported basis.'),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Carryover from last year')), h('div', { class: 'grid' },
+      field('Short-term loss carryover', 'capitalLossCarryover.shortTerm'), field('Long-term loss carryover', 'capitalLossCarryover.longTerm'))),
+    ...state.lots.map((l, i) => docCard(l.description || 'Lot ' + (i + 1), l.term === 'short' ? 'short-term' : 'long-term', 'lots', i, [
+      field('Description', 'lots.' + i + '.description', { type: 'text' }), field('Date acquired', 'lots.' + i + '.dateAcquired', { type: 'date' }), field('Date sold', 'lots.' + i + '.dateSold', { type: 'date' }),
+      field('Proceeds', 'lots.' + i + '.proceeds', { box: '1d' }), field('Cost basis', 'lots.' + i + '.basis', { box: '1e' }),
+      field('Term', 'lots.' + i + '.term', { type: 'select', options: [['short', 'Short-term (1 year or less)'], ['long', 'Long-term']] }),
+      field('Adjustment code', 'lots.' + i + '.adjustmentCode', { type: 'text', placeholder: 'W' }), field('Adjustment amount', 'lots.' + i + '.adjustment', { box: '1g' }),
+      field('Basis reported to IRS', 'lots.' + i + '.basisReported', { type: 'checkbox' })])),
+    h('div', { class: 'row' }, addButton('Add lot', 'lots', NEW.lot)));
+
+  const sectionBiz = () => h('section', { id: 'sec_biz' },
+    h('h2', {}, 'Business (Schedule C)'),
+    h('p', { class: 'lede' }, 'Self-employment income. The engine computes net profit, self-employment tax, the half-SE deduction and the QBI deduction.'),
+    ...state.scheduleC.map((c, i) => docCard(c.name || 'Business ' + (i + 1), 'Schedule C', 'scheduleC', i, [
+      field('Business name', 'scheduleC.' + i + '.name', { type: 'text' }), field('Owner', 'scheduleC.' + i + '.owner', { type: 'select', options: ownerOpts() }),
+      field('Gross receipts', 'scheduleC.' + i + '.grossReceipts', { box: '1' }), field('Returns and allowances', 'scheduleC.' + i + '.returnsAndAllowances', { box: '2' }),
+      field('Cost of goods sold', 'scheduleC.' + i + '.costOfGoodsSold', { box: '4' }), field('Total expenses', 'scheduleC.' + i + '.expenses', { box: '28' })])),
+    h('div', { class: 'row' }, addButton('Add business', 'scheduleC', NEW.c)));
+
+  const sectionDed = () => h('section', { id: 'sec_ded' },
+    h('h2', {}, 'Deductions and adjustments'),
+    h('p', { class: 'lede' }, 'Enter what you paid. The engine applies the SALT cap, picks itemized or standard, and adds the Schedule 1-A deductions.'),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Adjustments to income'), h('span', { class: 'tag' }, 'Schedule 1')), h('div', { class: 'grid' },
+      field('HSA deduction', 'adjustments.hsaDeduction'), field('IRA deduction', 'adjustments.iraDeduction'), field('Student loan interest', 'adjustments.studentLoanInterest'), field('Other adjustments', 'adjustments.other'))),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Itemized deductions'), h('span', { class: 'tag' }, 'Schedule A')), h('div', { class: 'grid' },
+      field('Medical and dental', 'itemized.medical'), field('State income tax beyond W-2', 'itemized.stateLocalIncomeTaxOther'), field('Real estate tax', 'itemized.realEstateTax'), field('Personal property tax', 'itemized.personalPropertyTax'),
+      field('Mortgage interest', 'itemized.mortgageInterest'), field('Charity, cash', 'itemized.charityCash'), field('Charity, non-cash', 'itemized.charityNoncash'), field('Other itemized', 'itemized.other'),
+      field('Force standard deduction', 'forceStandardDeduction', { type: 'checkbox' }))),
+    h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'New deductions'), h('span', { class: 'tag' }, 'Schedule 1-A')), h('div', { class: 'grid' },
+      field('Car loan interest', 'schedule1A.carLoanInterest'))));
+
+  const sectionPay = () => h('section', { id: 'sec_pay' },
+    h('h2', {}, 'Payments'),
+    h('p', { class: 'lede' }, 'Withholding comes from the W-2 and 1099 boxes. Add anything you paid directly.'),
+    h('div', { class: 'card' }, h('div', { class: 'grid' },
+      field('Estimated tax payments', 'payments.estimated'), field('Paid with extension', 'payments.extension'), field('Other federal withholding', 'payments.otherWithholding'))));
+
+  const sectionReview = () => h('section', { id: 'sec_review' }, h('h2', {}, 'Form 1040'), h('div', { id: 'review' }));
+
+  const sectionData = () => {
+    const ta = h('textarea', { id: 'jsonBox', spellcheck: 'false' });
+    ta.value = JSON.stringify(state, null, 2);
+    const status = h('span', { class: 'mono', id: 'dataStatus' });
+    return h('section', { id: 'sec_data' },
+      h('h2', {}, 'Save and load'),
+      h('p', { class: 'lede' }, 'Your entries stay in this browser only. Copy the JSON to keep a file, or paste one in and apply it. The same file works with the command line tool.'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', type: 'button', onclick: () => { ta.value = JSON.stringify(state, null, 2); navigator.clipboard.writeText(ta.value).then(() => { status.textContent = 'Copied.'; }).catch(() => { ta.select(); status.textContent = 'Select and copy.'; }); } }, 'Copy JSON'),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => { try { const parsed = JSON.parse(ta.value); E.parseReturn(parsed); state = parsed; isExample = false; persist(); status.textContent = 'Applied.'; renderSections(); recompute(); } catch (err) { status.textContent = 'Could not apply: ' + (err.message || err); } } }, 'Apply pasted JSON'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { state = JSON.parse(JSON.stringify(EXAMPLE)); isExample = true; persist(); renderSections(); recompute(); } }, 'Load example household'),
+        h('button', { class: 'btn', type: 'button', onclick: () => { state = blank(); isExample = false; persist(); renderSections(); recompute(); } }, 'Start blank'),
+        status),
+      ta);
+  };
+
+  const renderSections = () => {
+    const main = $('#main');
+    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionDed(), sectionPay(), sectionReview(), sectionData());
+    $('#yearLabel').textContent = 'tax year ' + state.taxYear;
+    renderRail();
+    showActive();
+  };
+
+  // ---------- compute and review ----------
+  const line = (ln, label, amt, note, cls) => h('tr', { class: cls || '' }, h('td', { class: 'ln' }, ln), h('td', {}, label), h('td', { class: 'amt' }, amt === null || amt === undefined ? '' : money(amt)), h('td', { class: 'note' }, note || ''));
+  const head = (t) => h('tr', { class: 'head' }, h('td', { colspan: '4' }, t));
+  const kv = (obj) => h('div', { class: 'tablewrap' }, h('table', { class: 'lines' }, Object.entries(obj).filter(([, v]) => typeof v === 'number' || typeof v === 'boolean').map(([k, v]) => h('tr', {}, h('td', { class: 'ln' }, ''), h('td', {}, k), h('td', { class: 'amt' }, typeof v === 'number' ? money(v) : (v ? 'yes' : 'no')), h('td', { class: 'note' })))));
+
+  const recompute = () => {
+    const result = $('#result');
+    const review = $('#review');
+    let c;
+    try {
+      c = E.computeReturn(E.parseReturn(state));
+    } catch (err) {
+      result.className = 'result owe';
+      result.replaceChildren(h('span', { class: 'label' }, 'Check entries'), h('span', { class: 'amount' }, '—'));
+      if (review) review.replaceChildren(h('p', { class: 'error' }, 'Could not compute: ' + (err.message || err)));
+      return;
+    }
+    const f = c.f1040;
+    const refund = f.line34 > 0;
+    result.className = 'result ' + (refund ? 'refund' : 'owe');
+    result.replaceChildren(h('span', { class: 'label' }, refund ? 'Refund' : 'You owe'), h('span', { class: 'amount' }, dollars(refund ? f.line34 : f.line37)));
+    $('#kpis').replaceChildren(
+      h('span', {}, 'AGI ', h('b', { class: 'num' }, dollars(f.line11))),
+      h('span', {}, 'Taxable ', h('b', { class: 'num' }, dollars(f.line15))),
+      h('span', {}, 'Total tax ', h('b', { class: 'num' }, dollars(f.line24))),
+      h('span', {}, 'Effective ', h('b', { class: 'num' }, (f.effectiveRate * 100).toFixed(1) + '%')),
+      isExample ? h('span', { class: 'pill' }, 'example data') : null);
+    renderRail();
+    if (!review) return;
+
+    const rows = [
+      head('Income'),
+      line('1a', 'Wages, salaries, tips (W-2 box 1)', f.line1a),
+      line('2b', 'Taxable interest', f.line2b, f.line2a ? 'tax-exempt ' + money(f.line2a) : ''),
+      line('3b', 'Ordinary dividends', f.line3b, 'qualified ' + money(f.line3a)),
+      line('7', 'Capital gain or (loss)', f.line7, f.line7ScheduleDNotRequired ? 'Schedule D not required' : 'Schedule D'),
+      line('8', 'Additional income from Schedule 1', f.line8),
+      line('9', 'Total income', f.line9, '', 'total'),
+      line('10', 'Adjustments to income from Schedule 1', f.line10),
+      line('11', 'Adjusted gross income', f.line11, '', 'total'),
+      head('Deductions'),
+      line('12', f.line12IsItemized ? 'Itemized deductions (Schedule A)' : 'Standard deduction', f.line12, f.line12IsItemized ? 'standard would be ' + money(c.standardDeduction) : 'itemized would be ' + money(c.scheduleA.line17)),
+      f.line13a ? line('13a', 'Qualified business income deduction', f.line13a) : null,
+      f.line13b ? line('13b', 'Schedule 1-A deductions', f.line13b) : null,
+      line('15', 'Taxable income', f.line15, '', 'total'),
+      head('Tax and credits'),
+      line('16', 'Tax', f.line16, f.line16Method === 'qdcg' ? 'Qualified Dividends and Capital Gain Tax Worksheet' : 'Tax Table'),
+      f.line19 ? line('19', 'Child tax credit', f.line19) : null,
+      f.line20 ? line('20', 'Other nonrefundable credits (Schedule 3)', f.line20) : null,
+      line('22', 'Tax after credits', f.line22),
+      c.schedule2.line4 ? line('', 'Self-employment tax (Schedule SE)', c.schedule2.line4) : null,
+      c.schedule2.line11 ? line('', 'Additional Medicare tax (Form 8959)', c.schedule2.line11) : null,
+      c.schedule2.line12 ? line('', 'Net investment income tax (Form 8960)', c.schedule2.line12) : null,
+      line('24', 'Total tax', f.line24, '', 'total'),
+      head('Payments'),
+      line('25a', 'Federal income tax withheld (W-2)', f.line25a),
+      f.line25b ? line('25b', 'Federal income tax withheld (1099)', f.line25b) : null,
+      f.line25c ? line('25c', 'Other withholding, including Form 8959', f.line25c) : null,
+      f.line26 ? line('26', 'Estimated tax payments', f.line26) : null,
+      f.line28 ? line('28', 'Additional child tax credit', f.line28) : null,
+      f.line31 ? line('31', 'Other payments (Schedule 3)', f.line31) : null,
+      line('33', 'Total payments', f.line33, '', 'total'),
+      head('Result'),
+      refund ? line('34', 'Refund', f.line34, '', 'total') : line('37', 'Amount you owe', f.line37, '', 'total'),
+    ];
+    const details = [];
+    const det = (title, body) => details.push(h('details', {}, h('summary', {}, title), body));
+    if (c.scheduleB.required) det('Schedule B', kv({ 'Line 2 interest': c.scheduleB.line2, 'Line 6 dividends': c.scheduleB.line6 }));
+    if (c.scheduleD.required) {
+      det('Schedule D', kv({ 'Line 7 net short-term': c.scheduleD.line7, 'Line 13 capital gain distributions': c.scheduleD.line13, 'Line 15 net long-term': c.scheduleD.line15, 'Line 16 combined': c.scheduleD.line16, 'Line 21 allowed loss': c.scheduleD.line21, 'Carryover to next year, short': c.scheduleD.nextYearCarryover.shortTerm, 'Carryover to next year, long': c.scheduleD.nextYearCarryover.longTerm }));
+      for (const part of c.scheduleD.f8949) {
+        det('Form 8949 Box ' + part.box, h('div', { class: 'tablewrap' }, h('table', { class: 'lines' },
+          h('tr', { class: 'head' }, h('td', {}, 'Description'), h('td', { class: 'amt' }, 'Proceeds'), h('td', { class: 'amt' }, 'Basis'), h('td', { class: 'amt' }, 'Adj.'), h('td', { class: 'amt' }, 'Gain')),
+          part.rows.map((x) => h('tr', {}, h('td', {}, x.description || '—'), h('td', { class: 'amt' }, money(x.proceeds)), h('td', { class: 'amt' }, money(x.basis)), h('td', { class: 'amt' }, x.code ? x.code + ' ' + money(x.adjustment) : ''), h('td', { class: 'amt' }, money(x.gain)))),
+          h('tr', { class: 'total' }, h('td', {}, 'Totals'), h('td', { class: 'amt' }, money(part.proceeds)), h('td', { class: 'amt' }, money(part.basis)), h('td', { class: 'amt' }, money(part.adjustment)), h('td', { class: 'amt' }, money(part.gain))))));
+      }
+    }
+    if (f.line12IsItemized) det('Schedule A', kv({ 'Line 4 medical after floor': c.scheduleA.line4, 'Line 5d state and local taxes paid': c.scheduleA.line5d, 'SALT cap applied': c.scheduleA.saltCapApplied, 'Line 5e deductible taxes': c.scheduleA.line5e, 'Line 10 mortgage interest': c.scheduleA.line10, 'Line 14 charity': c.scheduleA.line14, 'Line 17 total': c.scheduleA.line17 }));
+    if (c.schedule1.line10 || c.schedule1.line26) det('Schedule 1', kv({ 'Line 3 business income': c.schedule1.line3, 'Line 10 additional income': c.schedule1.line10, 'Line 13 HSA': c.schedule1.line13, 'Line 15 half of SE tax': c.schedule1.line15, 'Line 20 IRA': c.schedule1.line20, 'Line 21 student loan interest': c.schedule1.line21, 'Line 26 total adjustments': c.schedule1.line26 }));
+    for (const s of c.scheduleSE) det('Schedule SE (' + s.owner + ')', kv({ 'Net profit': s.netProfit, 'Line 4a net earnings': s.line4a, 'Social Security part': s.socialSecurityTax, 'Medicare part': s.medicareTax, 'Line 12 SE tax': s.line12, 'Line 13 deductible half': s.line13 }));
+    if (c.schedule3.line8 || c.schedule3.line15) det('Schedule 3', kv({ 'Line 1 foreign tax credit': c.schedule3.line1, 'Line 8 nonrefundable credits': c.schedule3.line8, 'Line 11 excess Social Security withheld': c.schedule3.line11, 'Line 15 other payments': c.schedule3.line15 }));
+    if (c.schedule8812.line12) det('Schedule 8812', kv({ 'Qualifying children': c.schedule8812.qualifyingChildren, 'Other dependents': c.schedule8812.otherDependents, 'Line 5 credit before phase-out': c.schedule8812.line5, 'Line 9 phase-out': c.schedule8812.line9, 'Line 14 nonrefundable credit': c.schedule8812.line14, 'Line 27 additional child tax credit': c.schedule8812.line27 }));
+    if (c.schedule1A.total) det('Schedule 1-A', kv(c.schedule1A));
+    if (c.f8959.required) det('Form 8959', kv({ 'Line 1 Medicare wages': c.f8959.line1, 'Line 5 threshold': c.f8959.line5, 'Line 7 tax on wages': c.f8959.line7, 'Line 13 tax on SE income': c.f8959.line13, 'Line 18 total additional Medicare tax': c.f8959.line18, 'Line 24 additional withholding credit': c.f8959.line24 }));
+    if (c.f8960.required) det('Form 8960', kv({ 'Line 8 net investment income': c.f8960.line8, 'Line 13 MAGI': c.f8960.line13, 'Line 14 threshold': c.f8960.line14, 'Line 16 smaller amount': c.f8960.line16, 'Line 17 tax': c.f8960.line17 }));
+    if (c.f8995.required) det('Form 8995', kv({ 'Line 2 qualified business income': c.f8995.line2, 'Line 5 QBI component': c.f8995.line5, 'Line 6 Section 199A dividends': c.f8995.line6, 'Line 10 before limit': c.f8995.line10, 'Line 14 income limitation': c.f8995.line14, 'Line 15 deduction': c.f8995.line15 }));
+    if (c.qdcg) det('Qualified Dividends and Capital Gain Tax Worksheet', kv(c.qdcg));
+
+    review.replaceChildren(
+      h('div', { class: 'card' }, h('div', { class: 'tablewrap' }, h('table', { class: 'lines' }, rows))),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Attach to the return')), h('div', {}, c.attachments.map((a) => h('span', { class: 'pill' }, a)))),
+      c.warnings.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Check before filing')), h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, c.warnings.map((w) => h('div', { class: 'warn' }, w)))) : null,
+      c.unverifiedParameters.length ? h('div', { class: 'warn' }, 'Tax year ' + c.taxYear + ' figures not yet confirmed against the IRS revenue procedure: ' + c.unverifiedParameters.join(', ')) : null,
+      details.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Schedules and worksheets')), details) : null);
+  };
+
+  renderSections();
+  recompute();
+})();
+</script>

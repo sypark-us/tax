@@ -9,7 +9,9 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "compute": "tsx src/cli.ts compute"
+    "compute": "tsx src/cli.ts compute",
+    "import": "tsx src/cli.ts import",
+    "build:web": "node scripts/build-web.mjs"
   },
   "repository": {
     "type": "git",
@@ -26,11 +28,13 @@
   "private": "true",
   "devDependencies": {
     "@types/node": "^24.19.2",
+    "esbuild": "^0.25.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"
   },
   "dependencies": {
+    "pdfjs-dist": "^4.10.38",
     "zod": "^3.25.76"
   }
 }

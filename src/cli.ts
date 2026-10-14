@@ -1,14 +1,19 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { parseReturn } from './model';
 import { computeReturn, type ComputedReturn } from './engine';
 import { fmt } from './money';
+import { parseTaxDocument } from './import/parse';
+import { extractTextItems } from './import/pdfText';
 
 const usage = `usage:
   tax compute <return.json> [--all] [--json]
+  tax import <document.pdf>... [--into <return.json>] [--owner taxpayer|spouse]
 
-  --all   print every schedule and worksheet, not just the Form 1040 summary
-  --json  print the computed return as JSON`;
+  --all     print every schedule and worksheet, not just the Form 1040 summary
+  --json    print the computed return as JSON
+  --into    append the imported W-2 / 1099 documents to this return file
+  --owner   whose W-2 (default taxpayer)`;
 
 const row = (label: string, value: number | string | undefined, note = ''): string => {
   const v = typeof value === 'number' ? fmt(value) : (value ?? '');
@@ -107,8 +112,50 @@ const printAll = (c: ComputedReturn): void => {
   if (c.qdcg) section('Qualified Dividends and Capital Gain Tax Worksheet', c.qdcg);
 };
 
+const importDocs = async (args: string[]): Promise<void> => {
+  const files: string[] = [];
+  let into: string | undefined;
+  let owner: 'taxpayer' | 'spouse' = 'taxpayer';
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--into') into = args[++i];
+    else if (a === '--owner') owner = args[++i] === 'spouse' ? 'spouse' : 'taxpayer';
+    else files.push(a);
+  }
+  if (!files.length) { console.error(usage); process.exit(2); }
+  const ret: Record<string, unknown[]> & Record<string, unknown> = into && existsSync(into)
+    ? JSON.parse(readFileSync(into, 'utf8'))
+    : { taxYear: 2025, filingStatus: 'single' };
+  for (const key of ['w2s', 'int1099s', 'div1099s']) if (!Array.isArray(ret[key])) ret[key] = [];
+
+  for (const file of files) {
+    const items = await extractTextItems(file);
+    const doc = parseTaxDocument(items);
+    console.log(`\n${file}`);
+    if ('message' in doc) { console.log(`  ${doc.type}: ${doc.message}`); continue; }
+    if (doc.type === 'w2') {
+      console.log(`  W-2 from ${doc.employer || '(employer not found)'} EIN ${doc.ein}`);
+      console.log(`  box 1 ${fmt(doc.box1)}  box 2 ${fmt(doc.box2)}  box 3 ${fmt(doc.box3)}  box 4 ${fmt(doc.box4)}  box 5 ${fmt(doc.box5)}  box 6 ${fmt(doc.box6)}`);
+      console.log(`  box 12 ${doc.box12.map((b) => `${b.code}=${fmt(b.amount)}`).join(' ') || '(none)'}  state ${doc.state} box 16 ${fmt(doc.box16)} box 17 ${fmt(doc.box17)}`);
+      (ret.w2s as unknown[]).push({ employer: doc.employer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box5: doc.box5, box6: doc.box6, box12: doc.box12, state: doc.state, box16: doc.box16, box17: doc.box17 });
+    } else if (doc.type === '1099-int') {
+      console.log(`  1099-INT from ${doc.payer}: box 1 ${fmt(doc.box1)}  box 3 ${fmt(doc.box3)}  box 4 ${fmt(doc.box4)}  box 8 ${fmt(doc.box8)}`);
+      (ret.int1099s as unknown[]).push({ payer: doc.payer, box1: doc.box1, box3: doc.box3, box4: doc.box4, box8: doc.box8 });
+    } else if (doc.type === '1099-div') {
+      console.log(`  1099-DIV from ${doc.payer}: 1a ${fmt(doc.box1a)}  1b ${fmt(doc.box1b)}  2a ${fmt(doc.box2a)}  4 ${fmt(doc.box4)}  5 ${fmt(doc.box5)}  7 ${fmt(doc.box7)}`);
+      (ret.div1099s as unknown[]).push({ payer: doc.payer, box1a: doc.box1a, box1b: doc.box1b, box2a: doc.box2a, box4: doc.box4, box5: doc.box5, box7: doc.box7 });
+    }
+    if (doc.missing.length) console.log(`  could not find: ${doc.missing.join(', ')} (check the document)`);
+  }
+  if (into) {
+    writeFileSync(into, JSON.stringify(ret, null, 2) + '\n');
+    console.log(`\nwrote ${into}`);
+  }
+};
+
 const main = (): void => {
   const [cmd, file, ...flags] = process.argv.slice(2);
+  if (cmd === 'import') { void importDocs(process.argv.slice(3)); return; }
   if (cmd !== 'compute' || !file) {
     console.error(usage);
     process.exit(2);

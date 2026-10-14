@@ -13,13 +13,22 @@ npm install
 
 ## Use
 
-Describe your return in a JSON file (see `tests/fixtures/sample-mfj.json` for every field), keep it under `data/`, which git ignores, then:
+**Web interview.** Build once, then open `web/index.html` in a browser. It runs entirely in the page: enter documents or import W-2 and 1099 PDFs, and the refund or balance due updates as you type.
 
 ```
+npm run build:web
+```
+
+**Command line.** Import source PDFs into a return file, add anything else by hand (see `tests/fixtures/sample-mfj.json` for every field), keep it under `data/`, which git ignores, then compute:
+
+```
+npm run import -- "docs/W2.pdf" "docs/1099-INT.pdf" --into data/my-return.json --owner taxpayer
 npm run compute -- data/my-return.json          # Form 1040 summary
 npm run compute -- data/my-return.json --all    # every schedule and worksheet
 npm run compute -- data/my-return.json --json   # machine-readable
 ```
+
+PDF import reads W-2 (ADP and IRS layouts), 1099-INT and 1099-DIV. Values are located by their printed box labels, so most employer and bank layouts work; anything it cannot find is reported and entered as 0. 1099-B import is not yet implemented.
 
 ## What is computed
 
