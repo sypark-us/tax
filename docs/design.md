@@ -32,7 +32,7 @@ So the output of this program is **completed IRS PDFs for paper filing**. If you
 Income and documents:
 - W-2 (multiple, both spouses), including Box 12 codes that matter (D, W, DD, etc.)
 - 1099-INT, 1099-DIV (ordinary vs qualified, capital gain distributions, foreign tax)
-- 1099-B: stock sales with cost basis, short/long term, wash-sale adjustments, broker CSV import (Fidelity, Schwab, Robinhood, Vanguard formats)
+- 1099-B: stock sales with cost basis, short/long term, wash-sale adjustments, imported from the broker 1099-B PDF (any issuer whose table uses the IRS column names); broker CSV import later
 - 1099-R, SSA-1099, 1099-G (state refund), 1098 (mortgage interest), 1098-E. 1095-A not in v1
 - HSA (Form 8889), estimated tax payments, prior-year capital loss carryover
 
@@ -51,8 +51,8 @@ Forms produced:
 
 ### Later
 - Schedule C / SE, Schedule E, K-1s, foreign tax credit (1116), education credits, EV and energy credits, 1095-A/8962
-- State returns
-- PDF import / OCR of documents
+- Other state returns (California is done)
+- Document import is done: W-2, 1099-INT, 1099-DIV, 1099-MISC and 1099-B (consolidated statements split into their forms) from PDF text or OCR; readers are keyed to IRS labels and column headings, not to issuers. Still to do: broker CSV import, wash-sale computation across lots.
 
 ## 5. Recommended architecture
 

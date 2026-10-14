@@ -67,6 +67,19 @@ export const Div1099Schema = z.object({
   foreignSourceDividends: money0,
 });
 
+export const Misc1099Schema = z.object({
+  payer: z.string().default(''),
+  owner,
+  /** Box 1 rents and box 2 royalties: Schedule E is not modeled, so they are taken gross on Schedule 1 line 5. */
+  box1: money0,
+  box2: money0,
+  /** Box 3 other income: Schedule 1 line 8z. */
+  box3: money0,
+  box4: money0,
+  /** Box 8 substitute payments in lieu of dividends or interest: ordinary income on Schedule 1 line 8z. */
+  box8: money0,
+});
+
 export const LotSchema = z.object({
   description: z.string().default(''),
   dateAcquired: z.string().default(''),
@@ -181,6 +194,7 @@ export const TaxReturnSchema = z.object({
   w2s: z.array(W2Schema).default([]),
   int1099s: z.array(Int1099Schema).default([]),
   div1099s: z.array(Div1099Schema).default([]),
+  misc1099s: z.array(Misc1099Schema).default([]),
   lots: z.array(LotSchema).default([]),
   capitalLossCarryover: z.object({ shortTerm: money0, longTerm: money0 }).default({}),
   scheduleC: z.array(ScheduleCSchema).default([]),
@@ -252,6 +266,7 @@ export type TaxReturn = z.infer<typeof TaxReturnSchema>;
 export type FilingStatus = z.infer<typeof FilingStatusSchema>;
 export type W2 = z.infer<typeof W2Schema>;
 export type Lot = z.infer<typeof LotSchema>;
+export type Misc1099 = z.infer<typeof Misc1099Schema>;
 export type Dependent = z.infer<typeof DependentSchema>;
 export type ForeignAccount = z.infer<typeof ForeignAccountSchema>;
 export type InheritedProperty = z.infer<typeof InheritedPropertySchema>;

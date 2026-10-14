@@ -12,8 +12,14 @@ export const extractTextItems = async (file: string): Promise<TextItem[]> => {
     const tc = await p.getTextContent();
     for (const it of tc.items) {
       if (!('str' in it) || !it.str.trim()) continue;
-      items.push({ str: it.str, x: it.transform[4], y: it.transform[5], page });
+      items.push({ str: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: it.height, page });
     }
   }
   return items;
+};
+
+/** True when a page of the file has no usable text layer (a scan), so OCR is needed. */
+export const looksScanned = (items: TextItem[], numPages: number): boolean => {
+  for (let page = 1; page <= numPages; page++) if (items.filter((i) => i.page === page).length < 15) return true;
+  return false;
 };

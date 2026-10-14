@@ -4,4 +4,5 @@ export { parseReturn, TaxReturnSchema } from './model';
 export { paramsFor, supportedYears } from './params';
 export { caParamsFor } from './params/ca';
 export { fmt } from './money';
-export { parseTaxDocument, detectDocType } from './import/parse';
+export { parseTaxDocument, parseTaxDocuments, detectDocType, normalizeItems, lotFromParsed } from './import/parse';
+export { wordsToItems, wordsFromResult, isImageFile } from './import/ocr';

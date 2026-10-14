@@ -30,6 +30,8 @@ export interface ScheduleB {
 
 export interface Schedule1 {
   line3: number; // business income (Schedule C)
+  line5: number; // rents and royalties (1099-MISC boxes 1 and 2, gross; Schedule E not modeled)
+  line8z: number; // other income (1099-MISC boxes 3 and 8)
   line10: number; // total additional income -> 1040 line 8
   line13: number; // HSA
   line15: number; // half SE tax
@@ -155,9 +157,14 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
 
   const netSchedC = netScheduleC(ret);
   const se = scheduleSE(ret, p);
+  const miscRents = sum(ret.misc1099s.map((m) => r(m.box1) + r(m.box2)));
+  const miscOther = sum(ret.misc1099s.map((m) => r(m.box3) + r(m.box8)));
+  if (miscRents) warnings.push(`1099-MISC rents and royalties of ${miscRents} are taken gross on Schedule 1 line 5; Schedule E expenses are not modeled.`);
   const schedule1: Schedule1 = {
     line3: netSchedC,
-    line10: netSchedC,
+    line5: miscRents,
+    line8z: miscOther,
+    line10: netSchedC + miscRents + miscOther,
     line13: r(ret.adjustments.hsaDeduction),
     line15: sum(se.map((s) => s.line13)),
     line20: r(ret.adjustments.iraDeduction),
@@ -278,7 +285,7 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
 
   // ---- Payments ----
   const line25a = sum(ret.w2s.map((w) => r(w.box2)));
-  const line25b = sum(ret.int1099s.map((i) => r(i.box4))) + sum(ret.div1099s.map((d) => r(d.box4)));
+  const line25b = sum(ret.int1099s.map((i) => r(i.box4))) + sum(ret.div1099s.map((d) => r(d.box4))) + sum(ret.misc1099s.map((m) => r(m.box4)));
   const line25c = f8959.line24 + r(ret.payments.otherWithholding);
   const line25d = line25a + line25b + line25c;
   const line26 = r(ret.payments.estimated);

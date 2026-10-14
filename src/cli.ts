@@ -3,7 +3,9 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { parseReturn } from './model';
 import { computeReturn, type ComputedReturn } from './engine';
 import { fmt } from './money';
-import { parseTaxDocument } from './import/parse';
+import { lotFromParsed, parseTaxDocuments } from './import/parse';
+import { isImageFile } from './import/ocr';
+import { ocrImageFile } from './import/ocrNode';
 import { extractTextItems } from './import/pdfText';
 
 const usage = `usage:
@@ -268,26 +270,45 @@ const importDocs = async (args: string[]): Promise<void> => {
   const ret: Record<string, unknown[]> & Record<string, unknown> = into && existsSync(into)
     ? JSON.parse(readFileSync(into, 'utf8'))
     : { taxYear: 2025, filingStatus: 'single' };
-  for (const key of ['w2s', 'int1099s', 'div1099s']) if (!Array.isArray(ret[key])) ret[key] = [];
+  for (const key of ['w2s', 'int1099s', 'div1099s', 'misc1099s', 'lots']) if (!Array.isArray(ret[key])) ret[key] = [];
 
   for (const file of files) {
-    const items = await extractTextItems(file);
-    const doc = parseTaxDocument(items);
     console.log(`\n${file}`);
-    if ('message' in doc) { console.log(`  ${doc.type}: ${doc.message}`); continue; }
-    if (doc.type === 'w2') {
-      console.log(`  W-2 from ${doc.employer || '(employer not found)'} EIN ${doc.ein}`);
-      console.log(`  box 1 ${fmt(doc.box1)}  box 2 ${fmt(doc.box2)}  box 3 ${fmt(doc.box3)}  box 4 ${fmt(doc.box4)}  box 5 ${fmt(doc.box5)}  box 6 ${fmt(doc.box6)}`);
-      console.log(`  box 12 ${doc.box12.map((b) => `${b.code}=${fmt(b.amount)}`).join(' ') || '(none)'}  state ${doc.state} box 16 ${fmt(doc.box16)} box 17 ${fmt(doc.box17)}`);
-      (ret.w2s as unknown[]).push({ employer: doc.employer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box5: doc.box5, box6: doc.box6, box12: doc.box12, state: doc.state, box16: doc.box16, box17: doc.box17 });
-    } else if (doc.type === '1099-int') {
-      console.log(`  1099-INT from ${doc.payer}: box 1 ${fmt(doc.box1)}  box 3 ${fmt(doc.box3)}  box 4 ${fmt(doc.box4)}  box 8 ${fmt(doc.box8)}`);
-      (ret.int1099s as unknown[]).push({ payer: doc.payer, box1: doc.box1, box3: doc.box3, box4: doc.box4, box8: doc.box8 });
-    } else if (doc.type === '1099-div') {
-      console.log(`  1099-DIV from ${doc.payer}: 1a ${fmt(doc.box1a)}  1b ${fmt(doc.box1b)}  2a ${fmt(doc.box2a)}  4 ${fmt(doc.box4)}  5 ${fmt(doc.box5)}  7 ${fmt(doc.box7)}`);
-      (ret.div1099s as unknown[]).push({ payer: doc.payer, box1a: doc.box1a, box1b: doc.box1b, box2a: doc.box2a, box4: doc.box4, box5: doc.box5, box7: doc.box7 });
+    let items;
+    if (isImageFile(file)) {
+      items = await ocrImageFile(file, (m) => console.log(`  ${m}`));
+    } else {
+      items = await extractTextItems(file);
+      if (items.length < 15) { console.log('  no text layer found. If this is a scan, export the pages as PNG or JPEG and import those, or use the web page, which runs OCR on scanned PDFs.'); continue; }
     }
-    if (doc.missing.length) console.log(`  could not find: ${doc.missing.join(', ')} (check the document)`);
+    const docs = parseTaxDocuments(items);
+    for (const doc of docs) {
+      if ('message' in doc) { console.log(`  ${doc.type}: ${doc.message}`); continue; }
+      if (doc.type === 'w2') {
+        console.log(`  W-2 from ${doc.employer || '(employer not found)'} EIN ${doc.ein}`);
+        console.log(`  box 1 ${fmt(doc.box1)}  box 2 ${fmt(doc.box2)}  box 3 ${fmt(doc.box3)}  box 4 ${fmt(doc.box4)}  box 5 ${fmt(doc.box5)}  box 6 ${fmt(doc.box6)}`);
+        console.log(`  box 12 ${doc.box12.map((b) => `${b.code}=${fmt(b.amount)}`).join(' ') || '(none)'}  state ${doc.state} box 16 ${fmt(doc.box16)} box 17 ${fmt(doc.box17)}`);
+        (ret.w2s as unknown[]).push({ employer: doc.employer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box5: doc.box5, box6: doc.box6, box12: doc.box12, state: doc.state, box16: doc.box16, box17: doc.box17 });
+      } else if (doc.type === '1099-int') {
+        console.log(`  1099-INT from ${doc.payer}: box 1 ${fmt(doc.box1)}  box 3 ${fmt(doc.box3)}  box 4 ${fmt(doc.box4)}  box 6 ${fmt(doc.box6)}  box 8 ${fmt(doc.box8)}`);
+        (ret.int1099s as unknown[]).push({ payer: doc.payer, box1: doc.box1, box3: doc.box3, box4: doc.box4, box8: doc.box8, foreignTaxPaid: doc.box6 });
+      } else if (doc.type === '1099-div') {
+        console.log(`  1099-DIV from ${doc.payer}: 1a ${fmt(doc.box1a)}  1b ${fmt(doc.box1b)}  2a ${fmt(doc.box2a)}  4 ${fmt(doc.box4)}  5 ${fmt(doc.box5)}  7 ${fmt(doc.box7)}`);
+        (ret.div1099s as unknown[]).push({ payer: doc.payer, box1a: doc.box1a, box1b: doc.box1b, box2a: doc.box2a, box4: doc.box4, box5: doc.box5, box7: doc.box7 });
+      } else if (doc.type === '1099-misc') {
+        console.log(`  1099-MISC from ${doc.payer}: 1 rents ${fmt(doc.box1)}  2 royalties ${fmt(doc.box2)}  3 other ${fmt(doc.box3)}  4 withheld ${fmt(doc.box4)}  8 substitute ${fmt(doc.box8)}`);
+        if (doc.box1 || doc.box2 || doc.box3 || doc.box4 || doc.box8) (ret.misc1099s as unknown[]).push({ payer: doc.payer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box8: doc.box8 });
+        else console.log('  (all boxes zero, not added)');
+      } else if (doc.type === '1099-b') {
+        console.log(`  1099-B from ${doc.payer}: ${doc.lots.length} lot${doc.lots.length === 1 ? '' : 's'}, proceeds ${fmt(doc.lots.reduce((s, l) => s + l.proceeds, 0))}, basis ${fmt(doc.lots.reduce((s, l) => s + l.basis, 0))}`);
+        for (const l of doc.lots) {
+          console.log(`    ${l.term}/${l.basisReported ? 'reported' : 'not reported'}${l.box ? ' box ' + l.box : ''}${l.termKnown ? '' : ' (term from dates)'}  ${l.dateAcquired} -> ${l.dateSold}  proceeds ${fmt(l.proceeds)}  basis ${fmt(l.basis)}${l.washSale ? '  wash ' + fmt(l.washSale) : ''}${l.accruedDiscount ? '  accrued discount ' + fmt(l.accruedDiscount) : ''}  ${l.description.slice(0, 50)}`);
+          (ret.lots as unknown[]).push(lotFromParsed(l));
+        }
+      }
+      if (doc.missing.length) console.log(`  check: ${doc.missing.join('; ')}`);
+    }
+    if (!docs.length) console.log('  nothing recognised');
   }
   if (into) {
     writeFileSync(into, JSON.stringify(ret, null, 2) + '\n');

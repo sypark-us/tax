@@ -186,13 +186,14 @@
     ...JSON.parse(JSON.stringify(EXAMPLE)),
     taxpayer: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
     spouse: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
-    dependents: [], w2s: [], int1099s: [], div1099s: [], lots: [], scheduleC: [], foreignAccounts: [], inheritedProperty: [], foreignGifts: [],
+    dependents: [], w2s: [], int1099s: [], div1099s: [], misc1099s: [], lots: [], scheduleC: [], foreignAccounts: [], inheritedProperty: [], foreignGifts: [],
     itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 0, personalPropertyTax: 0, mortgageInterest: 0, charityCash: 0, charityNoncash: 0, other: 0 },
   });
   const NEW = {
     w2: () => ({ employer: '', owner: 'taxpayer', box1: 0, box2: 0, box3: 0, box4: 0, box5: 0, box6: 0, box12: [], qualifiedTips: 0, qualifiedOvertime: 0, state: '', box16: 0, box17: 0 }),
     int: () => ({ payer: '', box1: 0, box3: 0, box4: 0, box8: 0, foreignCountry: '', foreignTaxPaid: 0 }),
     div: () => ({ payer: '', box1a: 0, box1b: 0, box2a: 0, box4: 0, box5: 0, box7: 0, foreignSourceDividends: 0 }),
+    misc: () => ({ payer: '', owner: 'taxpayer', box1: 0, box2: 0, box3: 0, box4: 0, box8: 0 }),
     lot: () => ({ description: '', dateAcquired: '', dateSold: '', proceeds: 0, basis: 0, adjustmentCode: '', adjustment: 0, term: 'long', basisReported: true, reportedOn1099B: true }),
     inh: () => ({ description: '', owner: 'taxpayer', country: '', dateOfDeath: '', dateSold: '', currency: 'USD', fmvAtDeath: 0, rateAtDeath: 1, salePrice: 0, rateAtSale: 1, sellingCosts: 0, foreignTaxPaid: 0, rateAtTaxPayment: 1 }),
     gift: () => ({ date: '', description: '', donorName: '', donorType: 'estate', donorCountry: '', currency: 'USD', amount: 0, rate: 1 }),
@@ -211,7 +212,7 @@
   // Returns saved before a section existed get its empty list.
   if (!Array.isArray(state.foreignAccounts)) state.foreignAccounts = [];
   if (!state.deductionMethod) state.deductionMethod = state.forceStandardDeduction ? 'standard' : 'auto';
-  for (const k of ['inheritedProperty', 'foreignGifts']) if (!Array.isArray(state[k])) state[k] = [];
+  for (const k of ['inheritedProperty', 'foreignGifts', 'misc1099s']) if (!Array.isArray(state[k])) state[k] = [];
   if (!state.foreignTaxCreditMethod) state.foreignTaxCreditMethod = 'auto';
   if (typeof state.foreignTaxCreditCarryover !== 'number') state.foreignTaxCreditCarryover = 0;
   if (!state.california || typeof state.california !== 'object') state.california = { file: 'auto', rentedPrincipalResidence: false, fullYearHealthCoverage: true, estimatedPayments: 0, taxExemptInterestNonCalifornia: 0, otherAdditions: 0, otherSubtractions: 0 };
@@ -278,6 +279,8 @@
     { id: 'w2', title: 'W-2 wages', count: () => state.w2s.length },
     { id: 'int', title: '1099-INT interest', count: () => state.int1099s.length },
     { id: 'div', title: '1099-DIV dividends', count: () => state.div1099s.length },
+
+    { id: 'misc', title: '1099-MISC', count: () => state.misc1099s.length },
     { id: 'stocks', title: 'Stock sales', count: () => state.lots.length },
     { id: 'biz', title: 'Business', count: () => state.scheduleC.length },
     { id: 'foreign', title: 'Foreign accounts', count: () => state.foreignAccounts.length },
@@ -320,9 +323,24 @@
       h('div', { class: 'row' }, addButton('Add dependent', 'dependents', NEW.dep)));
   };
 
-  // ---------- PDF import ----------
+  // ---------- document import (PDF text layer, or OCR for scans and photos) ----------
   const importLog = [];
-  const readPdfItems = async (file) => {
+  let ocrWorker = null;
+  const loadScript = (src) => new Promise((resolve, reject) => { const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('could not load ' + src)); document.head.appendChild(s); });
+  const getOcrWorker = async (status) => {
+    if (ocrWorker) return ocrWorker;
+    status('loading the OCR engine');
+    if (!window.Tesseract) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js');
+    ocrWorker = await window.Tesseract.createWorker('eng', 1, { logger: (m) => { if (m.status) status(m.status + (m.progress ? ' ' + Math.round(m.progress * 100) + '%' : '')); } });
+    return ocrWorker;
+  };
+  const ocrCanvas = async (canvas, page, status) => {
+    const worker = await getOcrWorker(status);
+    status('reading page ' + page + ' with OCR');
+    const { data } = await worker.recognize(canvas);
+    return E.wordsToItems(E.wordsFromResult(data), page, canvas.width, canvas.height);
+  };
+  const readPdfItems = async (file, status) => {
     const lib = window.pdfjsLib;
     if (!lib) throw new Error('The PDF reader library did not load.');
     lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -332,31 +350,72 @@
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p);
       const tc = await page.getTextContent();
-      for (const it of tc.items) if (it.str && it.str.trim()) items.push({ str: it.str, x: it.transform[4], y: it.transform[5], page: p });
+      const pageItems = [];
+      for (const it of tc.items) if (it.str && it.str.trim()) pageItems.push({ str: it.str, x: it.transform[4], y: it.transform[5], w: it.width, h: it.height, page: p });
+      if (pageItems.length >= 15) { items.push(...pageItems); continue; }
+      // No text layer: a scanned page. Render it and read it with OCR.
+      const viewport = page.getViewport({ scale: 2.5 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width); canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      items.push(...await ocrCanvas(canvas, p, status));
     }
     return items;
   };
+  const readImageItems = async (file, status) => {
+    const bmp = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bmp.width; canvas.height = bmp.height;
+    canvas.getContext('2d').drawImage(bmp, 0, 0);
+    return ocrCanvas(canvas, 1, status);
+  };
+  const describeDoc = (doc, owner) => {
+    if (doc.type === 'w2') {
+      state.w2s.push({ employer: doc.employer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box5: doc.box5, box6: doc.box6, box12: doc.box12, qualifiedTips: 0, qualifiedOvertime: 0, state: doc.state, box16: doc.box16, box17: doc.box17 });
+      return 'W-2 from ' + (doc.employer || 'unknown employer') + ': wages ' + money(doc.box1) + ', withheld ' + money(doc.box2) + ', Medicare wages ' + money(doc.box5) + ', state tax ' + money(doc.box17);
+    }
+    if (doc.type === '1099-int') {
+      state.int1099s.push({ payer: doc.payer, box1: doc.box1, box3: doc.box3, box4: doc.box4, box8: doc.box8, foreignCountry: '', foreignTaxPaid: doc.box6 });
+      return '1099-INT from ' + doc.payer + ': interest ' + money(doc.box1);
+    }
+    if (doc.type === '1099-div') {
+      state.div1099s.push({ payer: doc.payer, box1a: doc.box1a, box1b: doc.box1b, box2a: doc.box2a, box4: doc.box4, box5: doc.box5, box7: doc.box7, foreignSourceDividends: 0 });
+      return '1099-DIV from ' + doc.payer + ': ordinary ' + money(doc.box1a) + ', qualified ' + money(doc.box1b);
+    }
+    if (doc.type === '1099-misc') {
+      if (!(doc.box1 || doc.box2 || doc.box3 || doc.box4 || doc.box8)) return '1099-MISC from ' + doc.payer + ': all boxes zero, nothing added';
+      state.misc1099s.push({ payer: doc.payer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box8: doc.box8 });
+      return '1099-MISC from ' + doc.payer + ': other income ' + money(doc.box3) + ', rents ' + money(doc.box1) + ', royalties ' + money(doc.box2);
+    }
+    if (doc.type === '1099-b') {
+      for (const l of doc.lots) state.lots.push(E.lotFromParsed(l));
+      const p = doc.lots.reduce((s, l) => s + l.proceeds, 0), b = doc.lots.reduce((s, l) => s + l.basis, 0);
+      const guessed = doc.lots.filter((l) => !l.termKnown).length;
+      return '1099-B from ' + doc.payer + ': ' + doc.lots.length + ' lot' + (doc.lots.length === 1 ? '' : 's') + ', proceeds ' + money(p) + ', basis ' + money(b) + (guessed ? ' (' + guessed + ' with the holding period taken from the dates)' : '');
+    }
+    return doc.message || 'not recognised';
+  };
   const importFiles = async (files, owner) => {
     for (const file of files) {
+      const entry = { file: file.name, ok: true, text: 'reading' };
+      importLog.unshift(entry);
+      renderSections();
+      const status = (m) => { entry.text = m; renderSections(); };
       try {
-        const doc = E.parseTaxDocument(await readPdfItems(file));
-        if (doc.message) { importLog.unshift({ file: file.name, ok: false, text: doc.message }); continue; }
-        let text;
-        if (doc.type === 'w2') {
-          state.w2s.push({ employer: doc.employer, owner, box1: doc.box1, box2: doc.box2, box3: doc.box3, box4: doc.box4, box5: doc.box5, box6: doc.box6, box12: doc.box12, qualifiedTips: 0, qualifiedOvertime: 0, state: doc.state, box16: doc.box16, box17: doc.box17 });
-          text = 'W-2 from ' + (doc.employer || 'unknown employer') + ': wages ' + money(doc.box1) + ', withheld ' + money(doc.box2) + ', Medicare wages ' + money(doc.box5) + ', state tax ' + money(doc.box17);
-        } else if (doc.type === '1099-int') {
-          state.int1099s.push({ payer: doc.payer, box1: doc.box1, box3: doc.box3, box4: doc.box4, box8: doc.box8 });
-          text = '1099-INT from ' + doc.payer + ': interest ' + money(doc.box1);
-        } else {
-          state.div1099s.push({ payer: doc.payer, box1a: doc.box1a, box1b: doc.box1b, box2a: doc.box2a, box4: doc.box4, box5: doc.box5, box7: doc.box7 });
-          text = '1099-DIV from ' + doc.payer + ': ordinary ' + money(doc.box1a) + ', qualified ' + money(doc.box1b);
+        const items = E.isImageFile(file.name) || (file.type && file.type.startsWith('image/')) ? await readImageItems(file, status) : await readPdfItems(file, status);
+        const docs = E.parseTaxDocuments(items);
+        const lines = [];
+        for (const doc of docs) {
+          if (doc.message) { entry.ok = false; lines.push(doc.message); continue; }
+          let text = describeDoc(doc, owner);
+          if (doc.missing.length) text += '. Check: ' + doc.missing.join('; ') + (doc.type === '1099-b' ? '' : ', entered as 0');
+          lines.push(text);
+          isExample = false;
         }
-        if (doc.missing.length) text += '. Could not find ' + doc.missing.join(', ') + ', entered as 0.';
-        importLog.unshift({ file: file.name, ok: true, text });
-        isExample = false;
+        entry.text = lines.join(' | ') || 'nothing recognised';
       } catch (err) {
-        importLog.unshift({ file: file.name, ok: false, text: 'Could not read: ' + (err.message || err) });
+        entry.ok = false;
+        entry.text = 'Could not read: ' + (err.message || err);
       }
     }
     persist();
@@ -365,10 +424,10 @@
   };
   const sectionImport = () => {
     const ownerSel = h('select', { id: 'importOwner' }, ownerOpts().map(([v, t]) => h('option', { value: v }, t)));
-    const input = h('input', { id: 'importFiles', type: 'file', accept: 'application/pdf,.pdf', multiple: true, onchange: (ev) => { const files = [...ev.target.files]; ev.target.value = ''; importFiles(files, ownerSel.value); } });
+    const input = h('input', { id: 'importFiles', type: 'file', accept: 'application/pdf,.pdf,image/png,image/jpeg,.png,.jpg,.jpeg', multiple: true, onchange: (ev) => { const files = [...ev.target.files]; ev.target.value = ''; importFiles(files, ownerSel.value); } });
     return h('section', { id: 'sec_import' },
-      h('h2', {}, 'Import PDFs'),
-      h('p', { class: 'lede' }, 'Choose the W-2, 1099-INT and 1099-DIV files your employer and banks gave you. Each box is read from the PDF and a card is added to the matching section. Files stay in this browser.'),
+      h('h2', {}, 'Import documents'),
+      h('p', { class: 'lede' }, 'Choose the W-2, 1099-INT, 1099-DIV, 1099-MISC and 1099-B files from your employer, banks and brokers. A consolidated brokerage statement is split into its forms; each sale on the 1099-B becomes a lot. Digital PDFs are read from their text; scans and photos (PNG, JPEG) are read with OCR, which downloads the OCR engine on first use. Boxes are found by their printed IRS labels, so the layout of any issuer should work; check the imported cards against the paper. Files stay in this browser.'),
       h('div', { class: 'card' }, h('div', { class: 'grid wide' },
         h('label', { class: 'f' }, h('span', {}, 'Whose W-2s are these'), ownerSel),
         h('label', { class: 'f' }, h('span', {}, 'PDF files'), input))),
@@ -408,13 +467,23 @@
       field('Foreign tax paid', 'div1099s.' + i + '.box7', { box: '7' }), field('Foreign-source dividends (broker statement)', 'div1099s.' + i + '.foreignSourceDividends')])),
     h('div', { class: 'row' }, addButton('Add 1099-DIV', 'div1099s', NEW.div)));
 
+  const sectionMisc = () => h('section', { id: 'sec_misc' },
+    h('h2', {}, '1099-MISC other income'),
+    h('p', { class: 'lede' }, 'Other income (box 3) and substitute payments (box 8) go to Schedule 1 line 8z. Rents and royalties (boxes 1 and 2) are taken gross on Schedule 1 line 5 because Schedule E is not prepared here.'),
+    ...state.misc1099s.map((d, i) => docCard(d.payer || 'Payer ' + (i + 1), '1099-MISC', 'misc1099s', i, [
+      field('Payer', 'misc1099s.' + i + '.payer', { type: 'text' }), field('Owner', 'misc1099s.' + i + '.owner', { type: 'select', options: ownerOpts() }),
+      field('Rents', 'misc1099s.' + i + '.box1', { box: '1' }), field('Royalties', 'misc1099s.' + i + '.box2', { box: '2' }),
+      field('Other income', 'misc1099s.' + i + '.box3', { box: '3' }), field('Federal tax withheld', 'misc1099s.' + i + '.box4', { box: '4' }),
+      field('Substitute payments', 'misc1099s.' + i + '.box8', { box: '8' })])),
+    h('div', { class: 'row' }, addButton('Add 1099-MISC', 'misc1099s', NEW.misc)));
+
   const sectionStocks = () => h('section', { id: 'sec_stocks' },
     h('h2', {}, 'Stock sales'),
     h('p', { class: 'lede' }, 'One row per lot from the 1099-B. Lots are sorted onto Form 8949 and Schedule D by holding period and whether the broker reported basis.'),
     h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Carryover from last year')), h('div', { class: 'grid' },
       field('Short-term loss carryover', 'capitalLossCarryover.shortTerm'), field('Long-term loss carryover', 'capitalLossCarryover.longTerm'))),
     ...state.lots.map((l, i) => docCard(l.description || 'Lot ' + (i + 1), l.term === 'short' ? 'short-term' : 'long-term', 'lots', i, [
-      field('Description', 'lots.' + i + '.description', { type: 'text' }), field('Date acquired', 'lots.' + i + '.dateAcquired', { type: 'date' }), field('Date sold', 'lots.' + i + '.dateSold', { type: 'date' }),
+      field('Description', 'lots.' + i + '.description', { type: 'text' }), field('Date acquired', 'lots.' + i + '.dateAcquired', { type: 'text', placeholder: 'YYYY-MM-DD or VARIOUS' }), field('Date sold', 'lots.' + i + '.dateSold', { type: 'date' }),
       field('Proceeds', 'lots.' + i + '.proceeds', { box: '1d' }), field('Cost basis', 'lots.' + i + '.basis', { box: '1e' }),
       field('Term', 'lots.' + i + '.term', { type: 'select', options: [['short', 'Short-term (1 year or less)'], ['long', 'Long-term']] }),
       field('Adjustment code', 'lots.' + i + '.adjustmentCode', { type: 'text', placeholder: 'W' }), field('Adjustment amount', 'lots.' + i + '.adjustment', { box: '1g' }),
@@ -526,7 +595,7 @@
 
   const renderSections = () => {
     const main = $('#main');
-    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionCa(), sectionReview(), sectionData());
+    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionMisc(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionCa(), sectionReview(), sectionData());
     $('#yearLabel').textContent = 'tax year ' + state.taxYear;
     renderRail();
     showActive();

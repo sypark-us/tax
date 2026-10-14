@@ -13,7 +13,7 @@ npm install
 
 ## Use
 
-**Web interview.** Build once, then open `web/index.html` in a browser. It runs entirely in the page: enter documents or import W-2 and 1099 PDFs, and the refund or balance due updates as you type.
+**Web interview.** Build once, then open `web/index.html` in a browser. It runs entirely in the page: enter documents or import W-2 and 1099 PDFs, scans and photos, and the refund or balance due updates as you type.
 
 ```
 npm run build:web
@@ -28,7 +28,7 @@ npm run compute -- data/my-return.json --all    # every schedule and worksheet
 npm run compute -- data/my-return.json --json   # machine-readable
 ```
 
-PDF import reads W-2 (ADP and IRS layouts), 1099-INT and 1099-DIV. Values are located by their printed box labels, so most employer and bank layouts work; anything it cannot find is reported and entered as 0. 1099-B import is not yet implemented.
+**Document import.** Reads W-2, 1099-INT, 1099-DIV, 1099-MISC and 1099-B, including consolidated brokerage statements that carry several forms in one file (verified on a Fidelity statement; built from the IRS labels rather than any issuer's layout, so other brokers should read the same way, but check the cards). Box values are located by their printed IRS labels; 1099-B sales by the table's column headings (date acquired, date sold, proceeds, cost basis, wash sale, gain/loss) and by the section titles that give the holding period and whether basis was reported, or the Form 8949 box letter. Each sale becomes a lot with wash-sale and accrued-market-discount adjustments, and the broker's printed totals are checked against the lots read. Digital PDFs are read from their text layer. Scans and photos (PNG, JPEG, or a PDF without a text layer) are read with Tesseract OCR: the web page fetches the OCR engine from a CDN on first use; on the command line `npm run import` accepts PNG and JPEG files and downloads the English model into the temp directory. Anything it cannot find is reported and entered as 0.
 
 ## What is computed
 
