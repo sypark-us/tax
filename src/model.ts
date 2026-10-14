@@ -191,6 +191,24 @@ export const TaxReturnSchema = z.object({
   foreignTaxCreditMethod: z.enum(['auto', 'form1116']).default('auto'),
   /** Unused passive-category foreign tax credit carried in from earlier years (Form 1116 line 10). */
   foreignTaxCreditCarryover: money0,
+  /** California Form 540. */
+  california: z
+    .object({
+      /** auto files when any W-2 shows state CA. */
+      file: z.enum(['auto', 'yes', 'no']).default('auto'),
+      /** Paid rent on a California principal residence for at least half the year (renter's credit). */
+      rentedPrincipalResidence: z.boolean().default(false),
+      /** Everyone on the return had health coverage all year (line 92). */
+      fullYearHealthCoverage: z.boolean().default(true),
+      estimatedPayments: money0,
+      /** California capital loss carryover when it differs from the federal one. */
+      capitalLossCarryover: z.object({ shortTerm: money0, longTerm: money0 }).optional(),
+      /** Interest on municipal bonds from other states: federally exempt, taxable in California. */
+      taxExemptInterestNonCalifornia: money0,
+      otherAdditions: money0,
+      otherSubtractions: money0,
+    })
+    .default({}),
   adjustments: z
     .object({
       hsaDeduction: money0,

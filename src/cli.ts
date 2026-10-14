@@ -80,6 +80,31 @@ const printSummary = (c: ComputedReturn): void => {
     out.push('');
     out.push(`Unverified ${c.taxYear} parameters (confirm before filing): ${c.unverifiedParameters.join(', ')}`);
   }
+  if (c.ca) {
+    const s = c.ca;
+    out.push('');
+    out.push(`California Form 540, tax year ${s.taxYear}`);
+    out.push(row('13  Federal AGI', s.line13FederalAgi));
+    if (s.line14) out.push(row('14  Subtractions (Schedule CA)', s.line14));
+    if (s.line16) out.push(row('16  Additions (Schedule CA)', s.line16));
+    out.push(row('17  California AGI', s.line17CaAgi));
+    out.push(row(`18  ${s.line18IsItemized ? 'California itemized deductions' : 'California standard deduction'}`, s.line18, s.line18IsItemized ? '' : `itemized would be ${fmt(s.scheduleCA.line29Limited)}`));
+    out.push(row('19  Taxable income', s.line19TaxableIncome));
+    out.push(row('31  Tax', s.line31Tax, s.line31Method === 'table' ? 'tax table' : 'rate schedule'));
+    out.push(row('32  Exemption credits', s.line32ExemptionCredits, s.line32ExemptionCredits < s.line11 ? `before AGI limit ${fmt(s.line11)}` : ''));
+    if (s.line46RenterCredit) out.push(row('46  Renter\'s credit', s.line46RenterCredit));
+    if (s.line62BehavioralHealthTax) out.push(row('62  Behavioral Health Services Tax', s.line62BehavioralHealthTax));
+    out.push(row('64  Total tax', s.line64TotalTax));
+    out.push(row('71  California withholding', s.line71Withholding));
+    if (s.line72Estimated) out.push(row('72  Estimated payments', s.line72Estimated));
+    out.push(row('78  Total payments', s.line78TotalPayments));
+    if (s.line97Overpaid > 0) out.push(row('97  OVERPAID (refund)', s.line97Overpaid));
+    else out.push(row('100 TAX DUE', s.line100TaxDue));
+    out.push(`Effective rate ${(s.effectiveRate * 100).toFixed(1)}% of California AGI, marginal rate ${(s.marginalRate * 100).toFixed(1)}%`);
+    out.push(`Attach: ${s.attachments.join(', ')}`);
+    for (const w of s.warnings) out.push(`  - ${w}`);
+    if (s.unverifiedParameters.length) out.push(`Unverified California ${s.taxYear} parameters: ${s.unverifiedParameters.join(', ')}`);
+  }
   console.log(out.join('\n'));
 };
 
@@ -119,6 +144,12 @@ const printAll = (c: ComputedReturn): void => {
   }
   printFbar(c);
   printForeign(c);
+  if (c.ca) {
+    section('Schedule CA (540)', c.ca.scheduleCA);
+    const { scheduleCA, scheduleD, attachments, warnings, unverifiedParameters, ...lines } = c.ca;
+    section('Form 540', lines);
+    if (scheduleD) section('Schedule D (540)', scheduleD);
+  }
 };
 
 const printForeign = (c: ComputedReturn): void => {

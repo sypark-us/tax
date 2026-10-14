@@ -12,6 +12,7 @@ import { fbar as computeFbar, type Fbar } from './fbar';
 import { form1116, type Form1116 } from './f1116';
 import { form3520, form8938, type Form3520, type Form8938 } from './foreign';
 import { inheritedSales, type InheritedSale } from './inherited';
+import { form540, type Form540 } from './ca540';
 
 export interface ScheduleB {
   required: boolean;
@@ -85,6 +86,8 @@ export interface ComputedReturn {
   f3520: Form3520;
   f8938: Form8938;
   inheritedSales: InheritedSale[];
+  /** California Form 540, when the return files in California. */
+  ca: Form540 | null;
   qdcg: QdcgWorksheet | null;
   standardDeduction: number;
   attachments: string[];
@@ -321,6 +324,10 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
   if (ret.adjustments.hsaDeduction > 0) warnings.push('HSA deduction is taken as entered; Form 8889 limit checks are not yet implemented.');
   if (schedA.line8a > 0 && useItemized) warnings.push('Mortgage interest is taken as entered; the $750,000 acquisition-debt limit is not checked.');
 
+  // ---- California ----
+  const filesCa = ret.california.file === 'yes' || (ret.california.file === 'auto' && ret.w2s.some((w) => w.state.toUpperCase() === 'CA'));
+  const ca = filesCa ? form540(ret, { agi, scheduleA: schedA, capitalGainDistributions: capGainDist, federalLine7: line7, lots, federalParams: p }) : null;
+
   const f1040: Form1040 = {
     line1a, line1z, line2a, line2b, line3a, line3b,
     line7, line7ScheduleDNotRequired: !schedD.required,
@@ -342,7 +349,7 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
     schedule1, schedule2, schedule3: sched3,
     scheduleA: schedA, scheduleB, scheduleD: schedD, scheduleSE: se,
     schedule1A: s1a, schedule8812: s8812,
-    f8959, f8960, f8995, fbar: fbarReport, f1116, f3520, f8938, inheritedSales: inherited, qdcg,
+    f8959, f8960, f8995, fbar: fbarReport, f1116, f3520, f8938, inheritedSales: inherited, ca, qdcg,
     standardDeduction,
     attachments,
     separateFilings,

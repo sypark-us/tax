@@ -174,6 +174,7 @@
     foreignGifts: [],
     foreignTaxCreditMethod: 'auto',
     foreignTaxCreditCarryover: 0,
+    california: { file: 'auto', rentedPrincipalResidence: false, fullYearHealthCoverage: true, estimatedPayments: 0, taxExemptInterestNonCalifornia: 0, otherAdditions: 0, otherSubtractions: 0 },
     adjustments: { hsaDeduction: 0, iraDeduction: 0, studentLoanInterest: 0, other: 0 },
     itemized: { medical: 0, stateLocalIncomeTaxOther: 0, realEstateTax: 6000, personalPropertyTax: 0, mortgageInterest: 9000, charityCash: 2000, charityNoncash: 0, other: 0 },
     deductionMethod: 'auto',
@@ -213,6 +214,7 @@
   for (const k of ['inheritedProperty', 'foreignGifts']) if (!Array.isArray(state[k])) state[k] = [];
   if (!state.foreignTaxCreditMethod) state.foreignTaxCreditMethod = 'auto';
   if (typeof state.foreignTaxCreditCarryover !== 'number') state.foreignTaxCreditCarryover = 0;
+  if (!state.california || typeof state.california !== 'object') state.california = { file: 'auto', rentedPrincipalResidence: false, fullYearHealthCoverage: true, estimatedPayments: 0, taxExemptInterestNonCalifornia: 0, otherAdditions: 0, otherSubtractions: 0 };
 
   const persist = () => { try { localStorage.setItem('taxReturn', JSON.stringify(state)); } catch (e) { /* storage unavailable */ } };
   const getPath = (obj, path) => path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -283,6 +285,7 @@
     { id: 'gifts', title: 'Foreign gifts', count: () => state.foreignGifts.length },
     { id: 'ded', title: 'Deductions', count: () => '' },
     { id: 'pay', title: 'Payments', count: () => '' },
+    { id: 'ca', title: 'California', count: () => '' },
     { id: 'review', title: 'Review return', count: () => '' },
     { id: 'data', title: 'Save / load', count: () => '' },
   ];
@@ -492,6 +495,17 @@
     h('div', { class: 'card' }, h('div', { class: 'grid' },
       field('Estimated tax payments', 'payments.estimated'), field('Paid with extension', 'payments.extension'), field('Other federal withholding', 'payments.otherWithholding'))));
 
+  const sectionCa = () => h('section', { id: 'sec_ca' },
+    h('h2', {}, 'California (Form 540)'),
+    h('p', { class: 'lede' }, 'The state return starts from federal AGI and applies California rules: no HSA, no SALT cap, capital gains at ordinary rates, its own standard deduction, exemption credits and tax table, and no credit for foreign taxes. It is prepared automatically when a W-2 shows CA.'),
+    h('div', { class: 'card' }, h('div', { class: 'grid' },
+      field('File a California return', 'california.file', { type: 'select', options: [['auto', 'When a W-2 shows CA'], ['yes', 'Yes'], ['no', 'No']] }),
+      field('Rented my California home at least half the year', 'california.rentedPrincipalResidence', { type: 'checkbox' }),
+      field('Everyone had health coverage all year', 'california.fullYearHealthCoverage', { type: 'checkbox' }),
+      field('California estimated payments', 'california.estimatedPayments'),
+      field('Other-state municipal bond interest', 'california.taxExemptInterestNonCalifornia'),
+      field('Other additions to income', 'california.otherAdditions'), field('Other subtractions from income', 'california.otherSubtractions'))));
+
   const sectionReview = () => h('section', { id: 'sec_review' }, h('h2', {}, 'Form 1040'), h('div', { id: 'review' }));
 
   const sectionData = () => {
@@ -512,7 +526,7 @@
 
   const renderSections = () => {
     const main = $('#main');
-    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionReview(), sectionData());
+    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionCa(), sectionReview(), sectionData());
     $('#yearLabel').textContent = 'tax year ' + state.taxYear;
     renderRail();
     showActive();
@@ -522,6 +536,34 @@
   const line = (ln, label, amt, note, cls) => h('tr', { class: cls || '' }, h('td', { class: 'ln' }, ln), h('td', {}, label), h('td', { class: 'amt' }, amt === null || amt === undefined ? '' : money(amt)), h('td', { class: 'note' }, note || ''));
   const head = (t) => h('tr', { class: 'head' }, h('td', { colspan: '4' }, t));
   const kv = (obj) => h('div', { class: 'tablewrap' }, h('table', { class: 'lines' }, Object.entries(obj).filter(([, v]) => typeof v === 'number' || typeof v === 'boolean').map(([k, v]) => h('tr', {}, h('td', { class: 'ln' }, ''), h('td', {}, k), h('td', { class: 'amt' }, typeof v === 'number' ? money(v) : (v ? 'yes' : 'no')), h('td', { class: 'note' })))));
+
+  const caCard = (s) => {
+    const sca = s.scheduleCA;
+    const rows = [
+      head('California Form 540'),
+      line('13', 'Federal adjusted gross income', s.line13FederalAgi),
+      s.line14 ? line('14', 'Subtractions (Schedule CA)', s.line14, [sca.line2TreasuryInterest ? 'Treasury interest ' + money(sca.line2TreasuryInterest) : '', sca.line13HsaDeduction ? 'HSA deduction ' + money(sca.line13HsaDeduction) : ''].filter(Boolean).join(', ')) : null,
+      s.line16 ? line('16', 'Additions (Schedule CA)', s.line16, [sca.line1hEmployerHsa ? 'employer HSA ' + money(sca.line1hEmployerHsa) : '', sca.line2NonCaliforniaMuni ? 'other-state muni interest ' + money(sca.line2NonCaliforniaMuni) : ''].filter(Boolean).join(', ')) : null,
+      line('17', 'California adjusted gross income', s.line17CaAgi, '', 'total'),
+      line('18', s.line18IsItemized ? 'California itemized deductions' : 'California standard deduction', s.line18, s.line18IsItemized ? (sca.itemizedReduction ? 'reduced by ' + money(sca.itemizedReduction) + ' for high AGI' : '') : 'itemized would be ' + money(sca.line29Limited)),
+      line('19', 'Taxable income', s.line19TaxableIncome, '', 'total'),
+      line('31', 'Tax', s.line31Tax, s.line31Method === 'table' ? 'tax table' : 'rate schedule'),
+      line('32', 'Exemption credits', s.line32ExemptionCredits, s.line32ExemptionCredits < s.line11 ? 'limited from ' + money(s.line11) + ' by AGI' : s.line7PersonalCount + ' personal' + (s.line10DependentCount ? ', ' + s.line10DependentCount + ' dependent' : '')),
+      s.line46RenterCredit ? line('46', "Nonrefundable renter's credit", s.line46RenterCredit) : null,
+      s.line62BehavioralHealthTax ? line('62', 'Behavioral Health Services Tax', s.line62BehavioralHealthTax) : null,
+      line('64', 'Total tax', s.line64TotalTax, '', 'total'),
+      line('71', 'California income tax withheld', s.line71Withholding),
+      s.line72Estimated ? line('72', 'Estimated payments', s.line72Estimated) : null,
+      line('78', 'Total payments', s.line78TotalPayments, '', 'total'),
+      s.line97Overpaid > 0 ? line('97', 'Overpaid tax (refund)', s.line97Overpaid, '', 'total') : line('100', 'Tax due', s.line100TaxDue, '', 'total'),
+    ];
+    return h('div', { class: 'card' },
+      h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'California'), h('span', { class: 'tag' }, 'Form 540')),
+      h('div', { class: 'tablewrap' }, h('table', { class: 'lines' }, rows)),
+      h('p', { style: 'margin:8px 0 0' }, 'Effective ' + (s.effectiveRate * 100).toFixed(1) + '% of California AGI, marginal ' + (s.marginalRate * 100).toFixed(1) + '%. Attach: ' + s.attachments.join(', ') + '.'),
+      s.warnings.length ? h('div', { style: 'display:flex;flex-direction:column;gap:6px;margin-top:8px' }, s.warnings.map((w) => h('div', { class: 'warn' }, w))) : null,
+      s.unverifiedParameters.length ? h('div', { class: 'warn', style: 'margin-top:8px' }, 'California ' + s.taxYear + ' figures not yet confirmed by the FTB: ' + s.unverifiedParameters.join(', ')) : null);
+  };
 
   const recompute = () => {
     const result = $('#result');
@@ -544,6 +586,7 @@
       h('span', {}, 'Taxable ', h('b', { class: 'num' }, dollars(f.line15))),
       h('span', {}, 'Total tax ', h('b', { class: 'num' }, dollars(f.line24))),
       h('span', {}, 'Effective ', h('b', { class: 'num' }, (f.effectiveRate * 100).toFixed(1) + '%')),
+      c.ca ? h('span', {}, 'California ', h('b', { class: 'num' }, (c.ca.line97Overpaid > 0 ? 'refund ' : 'owe ') + dollars(c.ca.line97Overpaid > 0 ? c.ca.line97Overpaid : c.ca.line100TaxDue))) : null,
       isExample ? h('span', { class: 'pill' }, 'example data') : null);
     renderRail();
     if (!review) return;
@@ -654,7 +697,8 @@
       c.separateFilings.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'File separately, not with the return')), h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, c.separateFilings.map((s) => h('div', {}, s)))) : null,
       c.warnings.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Check before filing')), h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, c.warnings.map((w) => h('div', { class: 'warn' }, w)))) : null,
       c.unverifiedParameters.length ? h('div', { class: 'warn' }, 'Tax year ' + c.taxYear + ' figures not yet confirmed against the IRS revenue procedure: ' + c.unverifiedParameters.join(', ')) : null,
-      details.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Schedules and worksheets')), details) : null);
+      details.length ? h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Schedules and worksheets')), details) : null,
+      c.ca ? caCard(c.ca) : null);
   };
 
   renderSections();
