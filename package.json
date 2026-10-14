@@ -1,0 +1,36 @@
+{
+  "name": "tax",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "compute": "tsx src/cli.ts compute"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sypark-us/tax.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/sypark-us/tax/issues"
+  },
+  "homepage": "https://github.com/sypark-us/tax#readme",
+  "private": "true",
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  }
+}

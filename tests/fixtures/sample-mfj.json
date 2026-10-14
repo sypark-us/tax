@@ -1,0 +1,21 @@
+{
+  "taxYear": 2025,
+  "filingStatus": "mfj",
+  "taxpayer": { "firstName": "Alex", "lastName": "Sample" },
+  "spouse": { "firstName": "Sam", "lastName": "Sample" },
+  "dependents": [
+    { "name": "Kid One", "relationship": "child", "age": 8 },
+    { "name": "Kid Two", "relationship": "child", "age": 15 }
+  ],
+  "w2s": [
+    { "employer": "Acme", "owner": "taxpayer", "box1": 120000, "box2": 18000, "box3": 125000, "box4": 7750, "box5": 125000, "box6": 1812.5, "state": "CA", "box16": 125000, "box17": 7000 },
+    { "employer": "Globex", "owner": "spouse", "box1": 60000, "box2": 6000, "box3": 62000, "box4": 3844, "box5": 62000, "box6": 899, "state": "CA", "box16": 62000, "box17": 2500 }
+  ],
+  "int1099s": [ { "payer": "Bank", "box1": 1200.49 } ],
+  "div1099s": [ { "payer": "Broker", "box1a": 4000, "box1b": 3000, "box2a": 500 } ],
+  "lots": [
+    { "description": "ABC 10 sh", "dateAcquired": "2025-02-01", "dateSold": "2025-06-01", "proceeds": 5000, "basis": 4000, "term": "short", "basisReported": true },
+    { "description": "XYZ 5 sh", "dateAcquired": "2022-01-01", "dateSold": "2025-03-01", "proceeds": 3000, "basis": 5000, "adjustmentCode": "W", "adjustment": 500, "term": "long", "basisReported": true }
+  ],
+  "itemized": { "realEstateTax": 6000, "mortgageInterest": 9000, "charityCash": 2000 }
+}
