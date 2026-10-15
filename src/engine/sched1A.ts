@@ -18,7 +18,8 @@ export const schedule1A = (ret: TaxReturn, magi: number, fs: FilingStatus, p: Ta
   const tipsRaw = Math.min(sum(ret.w2s.map((w) => r(w.qualifiedTips))), s.tipsMax);
   const otRaw = Math.min(sum(ret.w2s.map((w) => r(w.qualifiedOvertime))), s.overtimeMax[ps]);
   const over = max0(magi - s.tipsOvertimePhaseoutStart[ps]);
-  const tipsOtReduction = Math.ceil(over / 1000) * s.tipsOvertimePhaseoutPer1000;
+  // Schedule 1-A lines 11 and 19: whole thousands, rounded down (the car-loan part rounds up).
+  const tipsOtReduction = Math.floor(over / 1000) * s.tipsOvertimePhaseoutPer1000;
   const tips = max0(tipsRaw - tipsOtReduction);
   const overtime = max0(otRaw - tipsOtReduction);
 

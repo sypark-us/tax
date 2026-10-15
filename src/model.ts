@@ -23,6 +23,31 @@ export const DependentSchema = z.object({
   qualifyingChild: z.boolean().default(true),
   /** Has an SSN valid for employment (required for CTC). */
   hasValidSsn: z.boolean().default(true),
+  ssn: z.string().default(''),
+});
+
+/** Identification printed on the forms. Not used by the computation. */
+export const IdentitySchema = z.object({
+  ssn: z.string().default(''),
+  spouseSsn: z.string().default(''),
+  street: z.string().default(''),
+  apt: z.string().default(''),
+  city: z.string().default(''),
+  state: z.string().default(''),
+  zip: z.string().default(''),
+  phone: z.string().default(''),
+  email: z.string().default(''),
+  occupation: z.string().default(''),
+  spouseOccupation: z.string().default(''),
+  /** Form 1040 digital-asset question. */
+  digitalAssets: z.boolean().default(false),
+  presidentialFund: z.object({ taxpayer: z.boolean().default(false), spouse: z.boolean().default(false) }).default({}),
+  /** 2026 Form 1040 question: U.S. citizen, national, or alien authorized to work. */
+  workAuthorized: z.object({ taxpayer: z.boolean().default(true), spouse: z.boolean().default(true) }).default({}),
+  /** Direct deposit of a refund. */
+  refund: z.object({ routing: z.string().default(''), account: z.string().default(''), accountType: z.enum(['checking', 'savings']).default('checking') }).default({}),
+  /** HOH/QSS qualifying child who is not a dependent, or the spouse's name when filing separately. */
+  qualifyingPersonName: z.string().default(''),
 });
 
 export const W2Schema = z.object({
@@ -190,6 +215,7 @@ export const TaxReturnSchema = z.object({
   filingStatus: FilingStatusSchema,
   taxpayer: PersonSchema.default({}),
   spouse: PersonSchema.optional(),
+  identity: IdentitySchema.default({}),
   dependents: z.array(DependentSchema).default([]),
   w2s: z.array(W2Schema).default([]),
   int1099s: z.array(Int1099Schema).default([]),
@@ -263,6 +289,7 @@ export const TaxReturnSchema = z.object({
 });
 
 export type TaxReturn = z.infer<typeof TaxReturnSchema>;
+export type Identity = z.infer<typeof IdentitySchema>;
 export type FilingStatus = z.infer<typeof FilingStatusSchema>;
 export type W2 = z.infer<typeof W2Schema>;
 export type Lot = z.infer<typeof LotSchema>;

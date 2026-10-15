@@ -94,9 +94,9 @@ Validated with zod at the boundary so bad input fails before computation.
 
 ### 5.3 Forms and PDF
 
-- Official IRS PDFs live in `forms/2026/pdf/`. Build on the IRS **draft** 2026 forms now (Schedule B, D, and 8949 drafts are already posted); swap in final forms when the IRS releases them, typically December 2026 to January 2027. Field names rarely move between draft and final, and a contract test catches it when they do.
-- A generated JSON schema per PDF (`forms/2026/schema/f1040.json`) lists every AcroForm field. A test asserts the field map only references fields that exist. This is the pattern UsTaxes uses and it is what makes the yearly form swap safe.
-- Output: one merged PDF in IRS attachment order (1040, then schedules by sequence number), plus `summary.md` with the key lines, refund or amount owed, effective and marginal rate, and a transcription sheet for Free File Fillable Forms.
+- Done (2026-10-14). Official IRS PDFs live in `forms/<year>/` (2025 final, 2026 early-release drafts; `npm run fetch-forms -- <year>` refreshes them). Field maps are in `src/pdf/fieldMaps.ts`, keyed by form line number and resolved by the tail of the AcroForm field name; the values come from `src/pdf/values.ts` and pdf-lib fills them in `src/pdf/fill.ts`, which takes the library as a parameter so the same code runs in Node and in the web page (pdf-lib from a CDN). Draft cover sheets are dropped by looking for the first page with widget annotations. The 2025 and 2026 maps differ where the forms do: 1040 lines 12f, 13a/13b, 24a-c, 32a-c; Schedule 2 and 3 renumbering; Schedule A on two pages; Schedule 1-A per-employer tables; Form 8959 Part II/IV swap; Form 8995 lines 16-19; Form 1116 Part II on page 2.
+- `scripts/pdf-layout.mjs` prints a form page as rows of printed text with the fields that sit on each row; `scripts/pdf-layout-diff.mjs` compares two years field by field; `scripts/pdf-values.mjs` reads a filled form back; `scripts/pdf-render.mjs` renders pages to PNG. tests/forms.test.ts asserts every map entry resolves to exactly one field on the checked-in PDF and fills a busy synthetic household for both years. That is what makes the yearly form swap safe.
+- Output: one fillable PDF per form (Form 8949 one page per box, Form 8938 one Part V page per extra account) plus `return-<year>.filled.pdf`, the attached forms flattened in IRS attachment-sequence order. Form 3520 is produced but listed as filed separately. Not yet as PDFs: Schedule C (its figures reach Schedule 1, SE and 8995) and California Form 540.
 
 ### 5.4 UI
 

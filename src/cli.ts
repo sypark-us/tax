@@ -7,15 +7,20 @@ import { lotFromParsed, parseTaxDocuments } from './import/parse';
 import { isImageFile } from './import/ocr';
 import { ocrImageFile } from './import/ocrNode';
 import { extractTextItems } from './import/pdfText';
+import { produceForms } from './pdf/node';
+import { basename, dirname, join } from 'node:path';
 
 const usage = `usage:
   tax compute <return.json> [--all] [--json]
   tax import <document.pdf>... [--into <return.json>] [--owner taxpayer|spouse]
+  tax forms <return.json> [--out <dir>] [--flatten]
 
   --all     print every schedule and worksheet, not just the Form 1040 summary
   --json    print the computed return as JSON
   --into    append the imported W-2 / 1099 documents to this return file
-  --owner   whose W-2 (default taxpayer)`;
+  --owner   whose W-2 (default taxpayer)
+  --out     folder for the filled IRS PDFs (default: <return>-forms next to the JSON)
+  --flatten burn the values into the pages (fields no longer editable)`;
 
 const row = (label: string, value: number | string | undefined, note = ''): string => {
   const v = typeof value === 'number' ? fmt(value) : (value ?? '');
@@ -316,9 +321,24 @@ const importDocs = async (args: string[]): Promise<void> => {
   }
 };
 
+const makeForms = async (file: string, flags: string[]): Promise<void> => {
+  const ret = parseReturn(JSON.parse(readFileSync(file, 'utf8')));
+  const computed = computeReturn(ret);
+  const outIdx = flags.indexOf('--out');
+  const outDir = outIdx >= 0 && flags[outIdx + 1] ? flags[outIdx + 1]! : join(dirname(file), basename(file).replace(/.json$/i, '') + '-forms');
+  const result = await produceForms(ret, computed, outDir, { flatten: flags.includes('--flatten') });
+  console.log(`Tax year ${ret.taxYear}: ${result.forms.length} form file(s) written to ${outDir}`);
+  for (const f of result.forms) console.log(`  ${f.fileName.padEnd(16)} ${f.title}`);
+  console.log(`Mailing package (flattened, IRS attachment order): ${result.packageFile}`);
+  for (const s of result.separate) console.log(`File separately, not with the 1040: ${s}`);
+  if (ret.taxYear >= 2026) console.log('Note: 2026 forms are IRS early-release drafts (watermarked DRAFT, not for filing). Replace forms/2026 with the final versions when the IRS issues them and run the tests.');
+  if (computed.warnings.length) { console.log('Warnings'); for (const w of computed.warnings) console.log(`  - ${w}`); }
+};
+
 const main = (): void => {
   const [cmd, file, ...flags] = process.argv.slice(2);
   if (cmd === 'import') { void importDocs(process.argv.slice(3)); return; }
+  if (cmd === 'forms' && file) { makeForms(file, flags).catch((err: unknown) => { console.error(err instanceof Error ? err.message : String(err)); process.exit(1); }); return; }
   if (cmd !== 'compute' || !file) {
     console.error(usage);
     process.exit(2);

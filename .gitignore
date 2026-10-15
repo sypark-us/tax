@@ -10,3 +10,5 @@ coverage/
 data/
 *.taxreturn.json
 *.filled.pdf
+*-forms/
+scratch_dump/

@@ -181,7 +181,9 @@
     forceStandardDeduction: false,
     schedule1A: { carLoanInterest: 0 },
     payments: { estimated: 0, extension: 0, otherWithholding: 0 },
+    identity: { ssn: '', spouseSsn: '', street: '', apt: '', city: '', state: '', zip: '', phone: '', email: '', occupation: '', spouseOccupation: '', digitalAssets: false, presidentialFund: { taxpayer: false, spouse: false }, workAuthorized: { taxpayer: true, spouse: true }, refund: { routing: '', account: '', accountType: 'checking' }, qualifyingPersonName: '' },
   };
+  const IDENTITY = () => JSON.parse(JSON.stringify(EXAMPLE.identity));
   const blank = () => ({
     ...JSON.parse(JSON.stringify(EXAMPLE)),
     taxpayer: { firstName: '', lastName: '', age65OrOlder: false, blind: false },
@@ -198,7 +200,7 @@
     inh: () => ({ description: '', owner: 'taxpayer', country: '', dateOfDeath: '', dateSold: '', currency: 'USD', fmvAtDeath: 0, rateAtDeath: 1, salePrice: 0, rateAtSale: 1, sellingCosts: 0, foreignTaxPaid: 0, rateAtTaxPayment: 1 }),
     gift: () => ({ date: '', description: '', donorName: '', donorType: 'estate', donorCountry: '', currency: 'USD', amount: 0, rate: 1 }),
     c: () => ({ name: '', owner: 'taxpayer', grossReceipts: 0, returnsAndAllowances: 0, costOfGoodsSold: 0, expenses: 0 }),
-    dep: () => ({ name: '', relationship: 'child', age: 0, qualifyingChild: true, hasValidSsn: true }),
+    dep: () => ({ name: '', relationship: 'child', age: 0, qualifyingChild: true, hasValidSsn: true, ssn: '' }),
     fa: () => ({ institution: '', accountNumber: '', accountType: 'bank', otherTypeDescription: '', street: '', city: '', stateProvince: '', postalCode: '', country: '', owner: 'taxpayer', signatureAuthorityOnly: false, currency: 'USD', maxValue: 0, maxValueUnknown: false, treasuryRate: 1, openedThisYear: false, closedThisYear: false }),
   };
 
@@ -214,6 +216,8 @@
   if (!state.deductionMethod) state.deductionMethod = state.forceStandardDeduction ? 'standard' : 'auto';
   for (const k of ['inheritedProperty', 'foreignGifts', 'misc1099s']) if (!Array.isArray(state[k])) state[k] = [];
   if (!state.foreignTaxCreditMethod) state.foreignTaxCreditMethod = 'auto';
+  if (!state.identity || typeof state.identity !== 'object') state.identity = IDENTITY();
+  for (const k of ['presidentialFund', 'workAuthorized', 'refund']) if (!state.identity[k] || typeof state.identity[k] !== 'object') state.identity[k] = IDENTITY()[k];
   if (typeof state.foreignTaxCreditCarryover !== 'number') state.foreignTaxCreditCarryover = 0;
   if (!state.california || typeof state.california !== 'object') state.california = { file: 'auto', rentedPrincipalResidence: false, fullYearHealthCoverage: true, estimatedPayments: 0, taxExemptInterestNonCalifornia: 0, otherAdditions: 0, otherSubtractions: 0 };
 
@@ -288,6 +292,7 @@
     { id: 'gifts', title: 'Foreign gifts', count: () => state.foreignGifts.length },
     { id: 'ded', title: 'Deductions', count: () => '' },
     { id: 'pay', title: 'Payments', count: () => '' },
+    { id: 'filing', title: 'Filing info', count: () => '' },
     { id: 'ca', title: 'California', count: () => '' },
     { id: 'review', title: 'Review return', count: () => '' },
     { id: 'data', title: 'Save / load', count: () => '' },
@@ -319,7 +324,7 @@
       ...state.dependents.map((d, i) => docCard(d.name || 'Dependent ' + (i + 1), 'dependent', 'dependents', i, [
         field('Name', 'dependents.' + i + '.name', { type: 'text' }), field('Relationship', 'dependents.' + i + '.relationship', { type: 'text' }),
         field('Age at year end', 'dependents.' + i + '.age'), field('Qualifying child', 'dependents.' + i + '.qualifyingChild', { type: 'checkbox' }),
-        field('Has valid SSN', 'dependents.' + i + '.hasValidSsn', { type: 'checkbox' })])),
+        field('Has valid SSN', 'dependents.' + i + '.hasValidSsn', { type: 'checkbox' }), field('SSN', 'dependents.' + i + '.ssn', { type: 'text', placeholder: '000-00-0000' })])),
       h('div', { class: 'row' }, addButton('Add dependent', 'dependents', NEW.dep)));
   };
 
@@ -564,6 +569,32 @@
     h('div', { class: 'card' }, h('div', { class: 'grid' },
       field('Estimated tax payments', 'payments.estimated'), field('Paid with extension', 'payments.extension'), field('Other federal withholding', 'payments.otherWithholding'))));
 
+  const sectionFiling = () => {
+    const married = state.filingStatus === 'mfj';
+    return h('section', { id: 'sec_filing' },
+      h('h2', {}, 'Filing information'),
+      h('p', { class: 'lede' }, 'Printed on the forms only; nothing here changes the tax. Stays in this browser like the rest of your entries.'),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Identification')), h('div', { class: 'grid' },
+        field('Your SSN', 'identity.ssn', { type: 'text', placeholder: '000-00-0000' }),
+        married ? field('Spouse SSN', 'identity.spouseSsn', { type: 'text', placeholder: '000-00-0000' }) : null,
+        field('Your occupation', 'identity.occupation', { type: 'text' }),
+        married ? field('Spouse occupation', 'identity.spouseOccupation', { type: 'text' }) : null,
+        field('Phone', 'identity.phone', { type: 'text' }), field('Email', 'identity.email', { type: 'text' }))),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Home address')), h('div', { class: 'grid' },
+        field('Street', 'identity.street', { type: 'text' }), field('Apt. no.', 'identity.apt', { type: 'text' }),
+        field('City', 'identity.city', { type: 'text' }), field('State', 'identity.state', { type: 'text', placeholder: 'CA' }), field('ZIP', 'identity.zip', { type: 'text' }))),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Questions on Form 1040')), h('div', { class: 'grid' },
+        field('Received, sold or exchanged digital assets this year', 'identity.digitalAssets', { type: 'checkbox' }),
+        field('$3 to the Presidential Election Campaign Fund (you)', 'identity.presidentialFund.taxpayer', { type: 'checkbox' }),
+        married ? field('$3 to the fund (spouse)', 'identity.presidentialFund.spouse', { type: 'checkbox' }) : null,
+        state.taxYear >= 2026 ? field('You are a U.S. citizen, national, or alien authorized to work', 'identity.workAuthorized.taxpayer', { type: 'checkbox' }) : null,
+        state.taxYear >= 2026 && married ? field('Spouse is a U.S. citizen, national, or alien authorized to work', 'identity.workAuthorized.spouse', { type: 'checkbox' }) : null,
+        ['hoh', 'qss', 'mfs'].includes(state.filingStatus) ? field(state.filingStatus === 'mfs' ? 'Spouse full name' : 'Qualifying child who is not your dependent', 'identity.qualifyingPersonName', { type: 'text' }) : null)),
+      h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'Direct deposit of a refund')), h('div', { class: 'grid' },
+        field('Routing number', 'identity.refund.routing', { type: 'text' }), field('Account number', 'identity.refund.account', { type: 'text' }),
+        field('Account type', 'identity.refund.accountType', { type: 'select', options: [['checking', 'Checking'], ['savings', 'Savings']] }))));
+  };
+
   const sectionCa = () => h('section', { id: 'sec_ca' },
     h('h2', {}, 'California (Form 540)'),
     h('p', { class: 'lede' }, 'The state return starts from federal AGI and applies California rules: no HSA, no SALT cap, capital gains at ordinary rates, its own standard deduction, exemption credits and tax table, and no credit for foreign taxes. It is prepared automatically when a W-2 shows CA.'),
@@ -575,7 +606,60 @@
       field('Other-state municipal bond interest', 'california.taxExemptInterestNonCalifornia'),
       field('Other additions to income', 'california.otherAdditions'), field('Other subtractions from income', 'california.otherSubtractions'))));
 
-  const sectionReview = () => h('section', { id: 'sec_review' }, h('h2', {}, 'Form 1040'), h('div', { id: 'review' }));
+  const sectionReview = () => h('section', { id: 'sec_review' }, h('h2', {}, 'Form 1040'), formsCard(), h('div', { id: 'review' }));
+
+  // ---------- filled IRS PDFs ----------
+  const FORMS_SOURCES = (year) => [new URL('../forms/' + year + '/', location.href).href, 'https://raw.githubusercontent.com/sypark-us/tax/main/forms/' + year + '/'];
+  let pickedBlanks = null; // { name: Uint8Array } from the file picker fallback
+  const loadPdfLib = async () => {
+    if (!window.PDFLib) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js');
+    return window.PDFLib;
+  };
+  const fetchBlank = async (year, form) => {
+    if (pickedBlanks && pickedBlanks[form + '.pdf']) return pickedBlanks[form + '.pdf'];
+    for (const base of FORMS_SOURCES(year)) {
+      try {
+        const res = await fetch(base + form + '.pdf');
+        if (res.ok) { const b = new Uint8Array(await res.arrayBuffer()); if (b[0] === 0x25) return b; }
+      } catch (e) { /* try the next source */ }
+    }
+    throw new Error('blank ' + form + '.pdf not found: pick the files from the forms/' + year + ' folder of the repository below');
+  };
+  const formsCard = () => {
+    const status = h('span', { class: 'mono', id: 'formsStatus' });
+    const list = h('div', { id: 'formsList', style: 'display:flex;flex-direction:column;gap:4px;margin-top:8px' });
+    const picker = h('input', { type: 'file', accept: 'application/pdf,.pdf', multiple: true, style: 'display:none', onchange: async (ev) => {
+      pickedBlanks = {};
+      for (const f of ev.target.files) pickedBlanks[f.name] = new Uint8Array(await f.arrayBuffer());
+      ev.target.value = '';
+      makeForms();
+    } });
+    const makeForms = async () => {
+      list.replaceChildren();
+      try {
+        const ret = E.parseReturn(state);
+        const c = E.computeReturn(ret);
+        status.textContent = 'loading the PDF library';
+        const lib = await loadPdfLib();
+        const entries = E.buildFormValues(ret, c);
+        status.textContent = 'filling ' + entries.length + ' form(s)';
+        const filled = await E.fillReturn(lib, ret.taxYear, entries, (form) => fetchBlank(ret.taxYear, form));
+        const pkg = await E.assemblePackage(lib, filled);
+        const link = (name, bytes, text) => h('a', { href: URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' })), download: name }, text);
+        list.append(h('div', {}, link('return-' + ret.taxYear + '.filled.pdf', pkg, 'Mailing package: every attached form in IRS order, flattened for printing')));
+        for (const f of filled) list.append(h('div', {}, link(f.fileName, f.bytes, f.title + (E.SEPARATE_FORMS.includes(f.form) ? ' (file separately, not with the 1040)' : '')), ' ', h('span', { style: 'color:var(--muted)' }, 'fillable')));
+        status.textContent = ret.taxYear >= 2026 ? 'Done. 2026 forms are IRS early-release drafts, watermarked DRAFT: not for filing until the IRS issues the finals.' : 'Done. Check every page against the review below before signing.';
+      } catch (err) {
+        status.textContent = 'Could not fill: ' + (err.message || err);
+        if (String(err.message || err).includes('not found')) list.append(h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, 'Choose the blank IRS PDFs from forms/' + state.taxYear));
+      }
+    };
+    return h('div', { class: 'card' },
+      h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'IRS forms (PDF)')),
+      h('p', { class: 'lede' }, 'Fills the official IRS fill-in PDFs with the figures below: Form 1040 and every schedule and form the return needs, one file each, plus a print-ready package in attachment order. Enter SSNs and your address under Filing info first. The blank forms and the PDF library are fetched when you click; nothing you entered leaves this browser.'),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: makeForms }, 'Fill IRS forms'), status, picker),
+      list);
+  };
 
   const sectionData = () => {
     const ta = h('textarea', { id: 'jsonBox', spellcheck: 'false' });
@@ -595,7 +679,7 @@
 
   const renderSections = () => {
     const main = $('#main');
-    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionMisc(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionCa(), sectionReview(), sectionData());
+    main.replaceChildren(sectionAbout(), sectionImport(), sectionW2(), sectionInt(), sectionDiv(), sectionMisc(), sectionStocks(), sectionBiz(), sectionForeign(), sectionInherit(), sectionGifts(), sectionDed(), sectionPay(), sectionFiling(), sectionCa(), sectionReview(), sectionData());
     $('#yearLabel').textContent = 'tax year ' + state.taxYear;
     renderRail();
     showActive();

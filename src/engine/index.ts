@@ -55,6 +55,8 @@ export interface Form1040 {
   line7: number; line7ScheduleDNotRequired: boolean;
   line8: number; line9: number; line10: number; line11: number;
   line12: number; line12IsItemized: boolean;
+  /** 2026+: charitable deduction for non-itemizers, included in line12. */
+  line12f: number;
   line13a: number; line13b: number; line14: number; line15: number;
   line16: number; line16Method: 'table' | 'qdcg';
   line17: number; line18: number;
@@ -339,7 +341,7 @@ export const computeReturn = (ret: TaxReturn): ComputedReturn => {
     line1a, line1z, line2a, line2b, line3a, line3b,
     line7, line7ScheduleDNotRequired: !schedD.required,
     line8, line9, line10, line11,
-    line12, line12IsItemized: useItemized,
+    line12, line12IsItemized: useItemized, line12f: nonItemizerCharity,
     line13a, line13b, line14, line15,
     line16, line16Method, line17, line18,
     line19, line20, line21, line22, line23, line24,
