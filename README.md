@@ -4,30 +4,47 @@ Personal US federal and California income tax calculator for tax years 2025 and 
 
 Not tax advice. Not an IRS e-file provider. Verify every number against the official instructions before filing.
 
-## Setup
+## Getting it
+
+The repository is private, so clone it from a computer signed in to GitHub:
+
+```
+git clone https://github.com/sypark-us/tax.git
+cd tax
+```
+
+The web page is committed already built, so the clone alone is enough to use it: open `web/index.html` in a browser. Nothing else is needed. The blank IRS PDFs are in the clone next to the page, so the forms fill without a network connection; only the PDF library (and the OCR engine, if you import a scan) is fetched from a CDN on first use. There is no hosted URL: GitHub Pages does not serve a private repository on a free plan.
+
+## Setup for the command line, tests, or rebuilding the page
 
 ```
 winget install OpenJS.NodeJS.LTS   # or any Node 20+
 npm install
+npm test                           # the test suite
+npm run typecheck
 ```
 
 ## Use
 
-**Web interview.** Build once, then open `web/index.html` in a browser. It runs entirely in the page: enter documents or import W-2 and 1099 PDFs, scans and photos, and the refund or balance due updates as you type.
+**Web interview.** Open `web/index.html` in a browser. It runs entirely in the page: enter documents or import W-2 and 1099 PDFs, scans and photos, and the refund or balance due updates as you type. Your entries are kept in the browser and never sent anywhere. Pick the tax year (2025 or 2026) at the top; the Review tab shows every form line, fills the IRS PDFs, and holds the blank-forms panel for the yearly form swap. After editing `web/template.html` or anything under `src/`, rebuild the page:
 
 ```
 npm run build:web
 ```
 
-**Command line.** Import source PDFs into a return file, add anything else by hand (see `tests/fixtures/sample-mfj.json` for every field), keep it under `data/`, which git ignores, then compute:
+**Command line.** Import source PDFs into a return file, add anything else by hand (see `tests/fixtures/sample-mfj.json` for every field, and set `taxYear` to 2025 or 2026), keep it under `data/`, which git ignores, then compute:
 
 ```
-npm run import -- "docs/W2.pdf" "docs/1099-INT.pdf" --into data/my-return.json --owner taxpayer
+npm run import -- "docs/W2.pdf" "docs/1099-INT.pdf" --into data/my-return.json
+npm run import -- "docs/spouse-W2.pdf" --into data/my-return.json --owner spouse
 npm run compute -- data/my-return.json          # Form 1040 summary
 npm run compute -- data/my-return.json --all    # every schedule and worksheet
 npm run compute -- data/my-return.json --json   # machine-readable
 npm run forms -- data/my-return.json            # filled IRS PDFs, one per form, plus the mailing package
+npm run forms -- data/my-return.json --out ~/Desktop/return --flatten   # choose the folder; make the single forms non-editable too
 ```
+
+`npm run forms` writes into `<name>-forms/` next to the JSON file unless `--out` says otherwise. Those folders and every `*.filled.pdf` are gitignored as well.
 
 **IRS forms.** `npm run forms` (or the "Fill IRS forms" button on the web page's review tab) fills the official IRS fill-in PDFs from the computed return: Form 1040 and every schedule and form the return needs, one file each (still editable in a PDF viewer), plus `return-<year>.filled.pdf`, every attached form flattened in IRS attachment-sequence order for printing, signing and mailing. Form 3520 is produced too but is mailed separately. Enter SSNs, address, occupations and bank details under `identity` (the web page's Filing info tab); nothing there affects the computation. The blank PDFs are checked in under `forms/<year>/`. The 2025 set is final. The 2026 set is the IRS early-release drafts, watermarked DRAFT and not fileable: when the IRS issues the finals (usually December to January) either run `npm run fetch-forms -- 2026` and `npm test` (the tests check that every mapped line still exists on the new PDFs, and `node scripts/pdf-layout.mjs forms/2026/f1040.pdf` prints a form's rows with its field names for fixing any that moved), or use the "Blank IRS forms" panel on the web page's review tab: it links to each form on irs.gov, takes the downloaded PDFs, keeps them in the browser in place of the built-in copies, and reports for each whether it is a draft or final and whether every line the program fills was found. The output is for paper filing; the IRS does not let software e-file without an approved provider, so to e-file type the figures into IRS Free File Fillable Forms.
 
