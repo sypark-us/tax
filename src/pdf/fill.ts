@@ -85,6 +85,26 @@ export const fillForm = async (lib: PdfLibModule, blank: Uint8Array, map: FieldM
   return doc.save();
 };
 
+export interface BlankFormReport {
+  pages: number;
+  /** An early-release draft carries a cover sheet without fields. */
+  draft: boolean;
+  fieldCount: number;
+  /** Map entries that no longer resolve to exactly one field. */
+  unmapped: string[];
+}
+
+/** Checks a blank IRS PDF against the year's field map: is it a draft, and does every mapped line still exist? */
+export const inspectBlankForm = async (lib: PdfLibModule, year: FormYear, form: FormId, bytes: Uint8Array): Promise<BlankFormReport> => {
+  const doc = await lib.PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  const fields = doc.getForm().getFields().map((field) => ({ name: field.getName(), field }));
+  const unmapped: string[] = [];
+  for (const [key, short] of Object.entries(FIELD_MAPS[year][form])) {
+    try { resolveField(fields, short); } catch { unmapped.push(key); }
+  }
+  return { pages: doc.getPageCount(), draft: coverPageCount(doc, lib) > 0, fieldCount: fields.length, unmapped };
+};
+
 export interface FilledForm {
   form: FormId;
   copy: number;

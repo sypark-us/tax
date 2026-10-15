@@ -610,30 +610,109 @@
 
   // ---------- filled IRS PDFs ----------
   const FORMS_SOURCES = (year) => [new URL('../forms/' + year + '/', location.href).href, 'https://raw.githubusercontent.com/sypark-us/tax/main/forms/' + year + '/'];
-  let pickedBlanks = null; // { name: Uint8Array } from the file picker fallback
+  // Blank forms the user supplied (final forms downloaded from the IRS) live in IndexedDB, keyed year/form.
+  const blankDb = () => new Promise((resolve, reject) => {
+    const req = indexedDB.open('taxBlankForms', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('blanks');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const blankStore = {
+    get: async (key) => { try { const db = await blankDb(); return await new Promise((res, rej) => { const r = db.transaction('blanks').objectStore('blanks').get(key); r.onsuccess = () => res(r.result || null); r.onerror = () => rej(r.error); }); } catch (e) { return null; } },
+    put: async (key, value) => { const db = await blankDb(); await new Promise((res, rej) => { const tx = db.transaction('blanks', 'readwrite'); tx.objectStore('blanks').put(value, key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
+    remove: async (key) => { const db = await blankDb(); await new Promise((res, rej) => { const tx = db.transaction('blanks', 'readwrite'); tx.objectStore('blanks').delete(key); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); },
+  };
   const loadPdfLib = async () => {
     if (!window.PDFLib) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js');
     return window.PDFLib;
   };
-  const fetchBlank = async (year, form) => {
-    if (pickedBlanks && pickedBlanks[form + '.pdf']) return pickedBlanks[form + '.pdf'];
+  // Returns { bytes, source } for a blank form: the user's own copy first, then the repository folder, then GitHub.
+  const findBlank = async (year, form) => {
+    const own = await blankStore.get(year + '/' + form);
+    if (own) return { bytes: own, source: 'your file' };
     for (const base of FORMS_SOURCES(year)) {
       try {
         const res = await fetch(base + form + '.pdf');
-        if (res.ok) { const b = new Uint8Array(await res.arrayBuffer()); if (b[0] === 0x25) return b; }
+        if (res.ok) { const b = new Uint8Array(await res.arrayBuffer()); if (b[0] === 0x25) return { bytes: b, source: base.startsWith('https://raw.githubusercontent.com') ? 'GitHub' : 'repository' }; }
       } catch (e) { /* try the next source */ }
     }
-    throw new Error('blank ' + form + '.pdf not found: pick the files from the forms/' + year + ' folder of the repository below');
+    return null;
+  };
+  const fetchBlank = async (year, form) => {
+    const found = await findBlank(year, form);
+    if (!found) throw new Error('blank ' + form + '.pdf not found: add it under Blank IRS forms below');
+    return found.bytes;
+  };
+  // Reads the form id out of a chosen file's name or its first page text ("Form 1040", "SCHEDULE 1-A", "Form 8949").
+  const formIdFromName = (name) => {
+    const n = name.toLowerCase().replace(/\.pdf$/, '');
+    const direct = n.match(/^(f1040s1a|f1040s1|f1040s2|f1040s3|f1040sa|f1040sb|f1040sd|f1040sse|f1040s8|f8949|f1116|f8995|f8959|f8960|f8938|f3520|f1040)(--\d{4}|--dft)?$/);
+    return direct ? direct[1] : null;
+  };
+  const blankFormsCard = () => {
+    const year = state.taxYear;
+    const forms = Object.keys(E.FIELD_MAPS[year]);
+    const tbody = h('tbody', {});
+    const status = h('span', { class: 'mono' });
+    const picker = h('input', { type: 'file', accept: 'application/pdf,.pdf', multiple: true, style: 'display:none', onchange: async (ev) => {
+      const files = [...ev.target.files]; ev.target.value = '';
+      const lib = await loadPdfLib();
+      let added = 0;
+      for (const f of files) {
+        const id = formIdFromName(f.name);
+        if (!id || !forms.includes(id)) { status.textContent = f.name + ': not an IRS form file name this program knows (expected e.g. f1040.pdf or f1040--' + year + '.pdf)'; continue; }
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        try { await E.inspectBlankForm(lib, year, id, bytes); } catch (err) { status.textContent = f.name + ': not a fillable PDF (' + (err.message || err) + ')'; continue; }
+        await blankStore.put(year + '/' + id, bytes);
+        added++;
+      }
+      status.textContent = added + ' file(s) stored in this browser for ' + year + '.';
+      check();
+    } });
+    const row = (id) => {
+      const urls = E.IRS_FORM_URLS(year, id);
+      return h('tr', { 'data-form': id },
+        h('td', {}, E.FORM_TITLES[id]),
+        h('td', { class: 'mono' }, id + '.pdf'),
+        h('td', { 'data-col': 'status' }, '…'),
+        h('td', { 'data-col': 'fields' }, ''),
+        h('td', {}, h('a', { href: urls.final, target: '_blank', rel: 'noopener' }, urls.draft ? 'final' : 'current'), urls.draft ? [' · ', h('a', { href: urls.draft, target: '_blank', rel: 'noopener' }, 'draft')] : null),
+        h('td', { 'data-col': 'actions' }, ''));
+    };
+    tbody.replaceChildren(...forms.map(row));
+    const check = async () => {
+      status.textContent = 'checking the blank forms';
+      const lib = await loadPdfLib();
+      let drafts = 0, problems = 0, missing = 0;
+      for (const id of forms) {
+        const tr = tbody.querySelector('tr[data-form="' + id + '"]');
+        const st = tr.querySelector('[data-col="status"]'), fl = tr.querySelector('[data-col="fields"]'), ac = tr.querySelector('[data-col="actions"]');
+        const found = await findBlank(year, id);
+        if (!found) { st.textContent = 'missing'; st.className = 'error'; fl.textContent = ''; missing++; continue; }
+        try {
+          const r = await E.inspectBlankForm(lib, year, id, found.bytes);
+          st.textContent = (r.draft ? 'DRAFT' : 'final') + ' · ' + found.source;
+          st.className = r.draft ? 'error' : '';
+          if (r.draft) drafts++;
+          fl.textContent = r.unmapped.length ? r.unmapped.length + ' line(s) not found: ' + r.unmapped.slice(0, 6).join(', ') + (r.unmapped.length > 6 ? '…' : '') : 'all ' + Object.keys(E.FIELD_MAPS[year][id]).length + ' lines found';
+          fl.className = r.unmapped.length ? 'error' : '';
+          if (r.unmapped.length) problems++;
+        } catch (err) { st.textContent = 'unreadable: ' + (err.message || err); st.className = 'error'; problems++; }
+        ac.replaceChildren(found.source === 'your file' ? h('button', { class: 'btn small', type: 'button', onclick: async () => { await blankStore.remove(year + '/' + id); check(); } }, 'Remove my copy') : '');
+      }
+      status.textContent = (missing ? missing + ' missing. ' : '') + (drafts ? drafts + ' draft(s): not for filing. ' : 'No drafts. ') + (problems ? problems + ' form(s) need the field map updated; the lines listed will print blank.' : 'Every mapped line was found.');
+    };
+    const details = h('details', {},
+      h('summary', {}, 'Blank IRS forms for ' + year),
+      h('p', { class: 'lede' }, 'The program fills these PDFs. Each year the IRS publishes drafts first (watermarked DRAFT, not for filing) and the finals around December to January. When the finals are out, download them from the links (save with the file name shown, for example f1040--' + year + '.pdf or f1040.pdf), choose them here, and they replace the built-in copies in this browser. The check tells you whether each file is a draft or final and whether every line the program fills still exists on it.'),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: () => picker.click() }, 'Choose downloaded PDFs'), h('button', { class: 'btn', type: 'button', onclick: check }, 'Check forms'), status, picker),
+      h('div', { class: 'tablewrap' }, h('table', { class: 'lines' }, h('thead', {}, h('tr', {}, h('th', {}, 'Form'), h('th', {}, 'File'), h('th', {}, 'Status'), h('th', {}, 'Field map'), h('th', {}, 'IRS'), h('th', {}, ''))), tbody)));
+    details.addEventListener('toggle', () => { if (details.open && !details.dataset.checked) { details.dataset.checked = '1'; check(); } });
+    return details;
   };
   const formsCard = () => {
     const status = h('span', { class: 'mono', id: 'formsStatus' });
     const list = h('div', { id: 'formsList', style: 'display:flex;flex-direction:column;gap:4px;margin-top:8px' });
-    const picker = h('input', { type: 'file', accept: 'application/pdf,.pdf', multiple: true, style: 'display:none', onchange: async (ev) => {
-      pickedBlanks = {};
-      for (const f of ev.target.files) pickedBlanks[f.name] = new Uint8Array(await f.arrayBuffer());
-      ev.target.value = '';
-      makeForms();
-    } });
     const makeForms = async () => {
       list.replaceChildren();
       try {
@@ -651,14 +730,14 @@
         status.textContent = ret.taxYear >= 2026 ? 'Done. 2026 forms are IRS early-release drafts, watermarked DRAFT: not for filing until the IRS issues the finals.' : 'Done. Check every page against the review below before signing.';
       } catch (err) {
         status.textContent = 'Could not fill: ' + (err.message || err);
-        if (String(err.message || err).includes('not found')) list.append(h('button', { class: 'btn', type: 'button', onclick: () => picker.click() }, 'Choose the blank IRS PDFs from forms/' + state.taxYear));
       }
     };
     return h('div', { class: 'card' },
       h('div', { class: 'card-head' }, h('span', { class: 'title' }, 'IRS forms (PDF)')),
       h('p', { class: 'lede' }, 'Fills the official IRS fill-in PDFs with the figures below: Form 1040 and every schedule and form the return needs, one file each, plus a print-ready package in attachment order. Enter SSNs and your address under Filing info first. The blank forms and the PDF library are fetched when you click; nothing you entered leaves this browser.'),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: makeForms }, 'Fill IRS forms'), status, picker),
-      list);
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', onclick: makeForms }, 'Fill IRS forms'), status),
+      list,
+      blankFormsCard());
   };
 
   const sectionData = () => {

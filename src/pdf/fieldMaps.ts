@@ -285,6 +285,12 @@ export const FIELD_MAPS: Record<FormYear, Record<FormId, FieldMap>> = {
   },
 };
 
+/** Where the IRS publishes each form: the final for a year, and the early-release draft used until then. */
+export const IRS_FORM_URLS = (year: FormYear, form: FormId): { final: string; draft: string | null } => {
+  if (form === 'f8938' || form === 'f3520') return { final: `https://www.irs.gov/pub/irs-pdf/${form}.pdf`, draft: null };
+  return { final: `https://www.irs.gov/pub/irs-prior/${form}--${year}.pdf`, draft: `https://www.irs.gov/pub/irs-dft/${form}--dft.pdf` };
+};
+
 /** Expands a map value to the PDF field-name tail it must match. */
 export const fieldSuffix = (short: string): string =>
   short.split('.').map((seg) => (/\[\d+\]$/.test(seg) ? seg : `${seg}[0]`)).join('.');
