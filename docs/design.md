@@ -125,7 +125,7 @@ Verified from the IRS news release for Rev. Proc. 2025-32 (IR-2025-103) unless m
 | Overtime deduction | up to $12,500 / $25,000 MFJ, same phase-out (OBBBA statute) |
 | Senior deduction | $6,000 per person 65+, phases out 6% of MAGI over $75k/$150k (OBBBA statute; confirm) |
 
-Still to pull from the Rev. Proc. itself: LTCG 15% ceilings, additional standard deduction for 65+/blind, kiddie tax threshold, full EITC table, HSA limits. The parameters file will carry a `verified: true|false` flag per entry and the engine refuses to print a final return while any used parameter is unverified.
+Still to confirm against the Rev. Proc. text: the entries named in the `unverified` array of `src/params/2026.ts` (MFS and HoH brackets, additional standard deduction for 65+/blind, LTCG 15% ceiling, refundable CTC maximum, MFS SALT cap, Social Security wage base, QBI threshold, HSA limits, foreign corporate gift threshold). The CLI and the web page print a warning while that array is not empty. Procedure: [docs/yearly-update.md](yearly-update.md).
 
 ## 7. Alternatives considered
 
@@ -171,7 +171,7 @@ Still to pull from the Rev. Proc. itself: LTCG 15% ceilings, additional standard
 4. Credits and extras: 8812, 8889, 8959/8960, 6251 check, Schedule A with SALT, Schedule 1-A.
 5. PDF output: field maps for all v1 forms, merged PDF, summary and transcription sheet.
 6. CLI polish, then web interview.
-7. January 2027: swap in final forms, re-verify parameters against final instructions, do the parallel-prep reconciliation.
+7. January 2027: swap in final forms, re-verify parameters against final instructions, do the parallel-prep reconciliation. Step-by-step: [docs/yearly-update.md](yearly-update.md).
 
 ## 12. Sources
 
